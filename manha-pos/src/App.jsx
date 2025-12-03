@@ -43,7 +43,8 @@ import {
   serverTimestamp 
 } from "firebase/firestore";
 
-// --- Helper: Safely access Env Vars ---
+// --- 1. CONFIGURATION & HELPERS ---
+
 const getEnv = (key, fallback) => {
   try {
     if (typeof import.meta !== 'undefined' && import.meta.env) {
@@ -55,7 +56,6 @@ const getEnv = (key, fallback) => {
   return fallback;
 };
 
-// --- Firebase Configuration ---
 const firebaseConfig = {
   apiKey: getEnv("VITE_FIREBASE_API_KEY", "YOUR_API_KEY_HERE"),
   authDomain: getEnv("VITE_FIREBASE_AUTH_DOMAIN", "your-project.firebaseapp.com"),
@@ -65,14 +65,12 @@ const firebaseConfig = {
   appId: getEnv("VITE_FIREBASE_APP_ID", "1:00000000:web:00000000")
 };
 
-// --- Static App ID ---
 const appId = 'manha-pos-v1';
 
-// --- Global Init ---
 let app, auth, db;
 let initError = null;
 
-// Validation Check
+// Check if keys are set
 const isConfigConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY_HERE" && 
                            !firebaseConfig.authDomain.includes("your-project");
 
@@ -87,7 +85,23 @@ if (isConfigConfigured) {
   }
 }
 
-// --- Utility Components (Defined OUTSIDE App to prevent ReferenceErrors) ---
+// --- 2. COMPONENT DEFINITIONS (Must be defined before App) ---
+
+// SidebarItem Component - Fixes ReferenceError
+const SidebarItem = ({ id, icon: Icon, label, activeTab, isLocked, onClick }) => (
+  <button
+    onClick={() => onClick(id)}
+    className={`flex items-center w-full p-3 mb-2 rounded-lg transition-colors ${
+      activeTab === id 
+        ? 'bg-blue-600 text-white shadow-md' 
+        : 'text-gray-600 hover:bg-gray-100'
+    }`}
+  >
+    <Icon size={20} className="mr-3" />
+    <span className="font-medium">{label}</span>
+    {isLocked && (id === 'sales' || id === 'pos' || id === 'settings') && <Lock size={14} className="ml-auto opacity-50"/>}
+  </button>
+);
 
 const Button = ({ children, onClick, variant = 'primary', className = '', icon: Icon, disabled = false }) => {
   const baseStyle = "flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1";
@@ -134,23 +148,7 @@ const Modal = ({ isOpen, onClose, title, children }) => {
   );
 };
 
-// Fixed SidebarItem - Defined outside App and accepts props
-const SidebarItem = ({ id, icon: Icon, label, activeTab, isLocked, onClick }) => (
-  <button
-    onClick={() => onClick(id)}
-    className={`flex items-center w-full p-3 mb-2 rounded-lg transition-colors ${
-      activeTab === id 
-        ? 'bg-blue-600 text-white shadow-md' 
-        : 'text-gray-600 hover:bg-gray-100'
-    }`}
-  >
-    <Icon size={20} className="mr-3" />
-    <span className="font-medium">{label}</span>
-    {isLocked && (id === 'sales' || id === 'pos' || id === 'settings') && <Lock size={14} className="ml-auto opacity-50"/>}
-  </button>
-);
-
-// --- Main Application ---
+// --- 3. MAIN APPLICATION ---
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -482,8 +480,9 @@ export default function App() {
     );
   }, [sales, salesSearch]);
 
-  // --- RENDERS ---
+  // --- 4. RENDER UI ---
 
+  // Check Config
   if (!isConfigConfigured) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900 text-white p-8 flex-col">
@@ -510,6 +509,7 @@ export default function App() {
     );
   }
 
+  // Check Auth Errors
   if (authError) {
     return (
       <div className="flex items-center justify-center h-screen bg-red-50 text-red-900 p-8 flex-col">
@@ -517,14 +517,6 @@ export default function App() {
           <AlertCircle size={48} className="mx-auto mb-4 text-red-500" />
           <h1 className="text-xl font-bold mb-2">Connection Failed</h1>
           <p className="text-red-600 mb-4">{authError}</p>
-          <div className="text-left text-sm bg-gray-50 p-4 rounded border border-gray-200">
-            <strong>Possible Causes:</strong>
-            <ul className="list-disc pl-5 mt-1 space-y-1">
-              <li>Anonymous Auth is disabled in Firebase Console.</li>
-              <li>Internet connection is unstable.</li>
-              <li>API Key is invalid or restricted.</li>
-            </ul>
-          </div>
           <button onClick={() => window.location.reload()} className="mt-6 bg-red-600 text-white px-6 py-2 rounded-full hover:bg-red-700 transition-colors w-full">
             Retry Connection
           </button>
@@ -533,6 +525,7 @@ export default function App() {
     );
   }
 
+  // Loading Screen
   if (!user) return (
     <div className="flex items-center justify-center h-screen bg-gray-50 flex-col">
       <Loader2 size={48} className="animate-spin text-blue-600 mb-4" />
@@ -541,47 +534,19 @@ export default function App() {
     </div>
   );
 
+  // Main App
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
-      {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col p-4 print:hidden">
         <div className="flex items-center mb-8 px-2">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold mr-3">M</div>
           <h1 className="text-xl font-bold tracking-tight text-gray-800">Manha</h1>
         </div>
         <nav className="flex-1">
-          <SidebarItem 
-            id="inventory" 
-            icon={Package} 
-            label="Inventory" 
-            activeTab={activeTab} 
-            isLocked={isLocked} 
-            onClick={handleTabChange} 
-          />
-          <SidebarItem 
-            id="pos" 
-            icon={ShoppingCart} 
-            label="Point of Sale" 
-            activeTab={activeTab} 
-            isLocked={isLocked} 
-            onClick={handleTabChange} 
-          />
-          <SidebarItem 
-            id="sales" 
-            icon={TrendingUp} 
-            label="Sales History" 
-            activeTab={activeTab} 
-            isLocked={isLocked} 
-            onClick={handleTabChange} 
-          />
-          <SidebarItem 
-            id="settings" 
-            icon={Settings} 
-            label="Settings" 
-            activeTab={activeTab} 
-            isLocked={isLocked} 
-            onClick={handleTabChange} 
-          />
+          <SidebarItem id="inventory" icon={Package} label="Inventory" activeTab={activeTab} isLocked={isLocked} onClick={handleTabChange} />
+          <SidebarItem id="pos" icon={ShoppingCart} label="Point of Sale" activeTab={activeTab} isLocked={isLocked} onClick={handleTabChange} />
+          <SidebarItem id="sales" icon={TrendingUp} label="Sales History" activeTab={activeTab} isLocked={isLocked} onClick={handleTabChange} />
+          <SidebarItem id="settings" icon={Settings} label="Settings" activeTab={activeTab} isLocked={isLocked} onClick={handleTabChange} />
         </nav>
         <div className="mt-auto pt-4 border-t border-gray-100 space-y-2">
            <button onClick={toggleGlobalLock} className={`w-full flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors ${isLocked ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
@@ -593,7 +558,6 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 overflow-y-auto print:overflow-visible h-full">
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 print:hidden sticky top-0 z-10">
           <h2 className="text-xl font-semibold capitalize text-gray-800">{activeTab}</h2>
