@@ -179,7 +179,6 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState("");
   const [loginError, setLoginError] = useState("");
 
-  // Change default tab to 'pos' as requested
   const [activeTab, setActiveTab] = useState('pos');
   
   const [items, setItems] = useState([]);
@@ -188,11 +187,9 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isProcessingSale, setIsProcessingSale] = useState(false);
   
-  // Filtering States
   const [filterType, setFilterType] = useState('daily');
   const [filterDate, setFilterDate] = useState(new Date().toLocaleDateString('en-CA'));
   
-  // Customer Details State
   const [customerName, setCustomerName] = useState("");
   const [customerMobile, setCustomerMobile] = useState("");
   
@@ -311,7 +308,7 @@ export default function App() {
       setShowPinModal(true);
     } else {
       setIsLocked(true);
-      setActiveTab('pos'); // Changed default to POS
+      setActiveTab('pos');
     }
   };
 
@@ -817,10 +814,10 @@ export default function App() {
                   <Button variant="secondary" onClick={() => setViewOrder(null)} icon={ArrowLeft}>Back</Button>
                   <Button onClick={() => window.print()} icon={Printer}>Print / Save PDF</Button>
                 </div>
-                {/* RECEIPT CONTENT AREA (A6 Size optimized) */}
+                {/* RECEIPT CONTENT AREA */}
                 <div className="p-8 md:p-12 overflow-y-auto flex-1" id="receipt-area">
                   <div className="border-b-2 border-gray-800 pb-8 mb-8">
-                    {/* BUSINESS HEADER */}
+                    {/* BUSINESS HEADER - Updated with new details */}
                     <div className="text-center mb-6">
                       <h1 className="text-2xl font-bold text-gray-900 uppercase tracking-wider mb-1">Hossain Traders</h1>
                       <p className="text-xs text-gray-600 leading-tight">Poroshovar Gate, Anantapur, Eklashpur, Begumganj, Noakhali-3801</p>
@@ -870,8 +867,10 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-6">
+                 {/* ... (Existing Sales History UI) ... */}
                  <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                    <h2 className="text-lg font-bold text-gray-800">Sales Records</h2>
+                   
                    <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-gray-200">
                      <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="p-2 text-sm bg-transparent outline-none font-medium text-gray-700">
                        <option value="daily">Daily</option>
@@ -883,11 +882,13 @@ export default function App() {
                      {filterType === 'monthly' && <input type="month" value={filterDate.slice(0, 7)} onChange={(e) => setFilterDate(e.target.value)} className="p-2 text-sm outline-none bg-gray-50 rounded" />}
                      {filterType === 'yearly' && <select value={filterDate.slice(0, 4)} onChange={(e) => setFilterDate(`${e.target.value}-01-01`)} className="p-2 text-sm outline-none bg-gray-50 rounded">{Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (<option key={year} value={year}>{year}</option>))}</select>}
                    </div>
+
                    <div className="relative">
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
                       <input type="text" placeholder="Search orders..." value={salesSearch} onChange={(e) => setSalesSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm w-64" />
                    </div>
                  </div>
+
                  <div className="grid grid-cols-2 gap-4">
                     <div className="bg-blue-600 rounded-xl p-4 text-white shadow-lg">
                       <p className="text-blue-100 text-sm mb-1 uppercase tracking-wider">Revenue ({filterType})</p>
@@ -898,6 +899,7 @@ export default function App() {
                       <h3 className="text-3xl font-bold text-gray-800">{filteredSales.length}</h3>
                     </div>
                  </div>
+
                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                    <table className="w-full text-left">
                      <thead className="bg-gray-50 border-b border-gray-200">
@@ -1004,52 +1006,34 @@ export default function App() {
       {/* --- FIXED PRINT STYLES --- */}
       <style>{`
         @media print {
-          @page {
-            size: 105mm 148mm; 
-            margin: 5mm; 
+          /* 1. Hide EVERYTHING by default */
+          body, html, #root {
+            visibility: hidden;
+            height: 100%;
+            margin: 0;
+            padding: 0;
           }
           
-          /* Global Resets */
-          body, html, #root, .flex, main {
-            background-color: white;
-            height: auto !important;
-            overflow: visible !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            width: 100% !important;
-            display: block !important; /* Force block layout to remove flex complexities */
+          /* 2. Make ONLY the receipt visible */
+          #receipt-area, #receipt-area * {
+            visibility: visible;
           }
 
-          /* Hiding Elements */
-          aside, header, button, .no-print, input, select, .lucide { 
-            display: none !important; 
-          }
-
-          /* Receipt Specifics */
+          /* 3. Position the receipt absolutely at the top left */
           #receipt-area {
-            display: block !important;
-            width: 100% !important;
-            position: relative !important;
-            left: 0 !important;
-            top: 0 !important;
-            visibility: visible !important;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: white;
             z-index: 9999;
           }
           
-          /* Make sure children of receipt area are visible */
-          #receipt-area * {
-            visibility: visible !important;
-            display: block;
-          }
-          
-          /* Override flex inside receipt for better print flow */
-          #receipt-area .flex {
-            display: flex !important;
-          }
-
-          /* Hide unrelated siblings in the DOM */
-          body > *:not(#root) {
-            display: none;
+          /* 4. Hide unnecessary UI elements specifically */
+          aside, header, button, .no-print, input, select, .lucide { 
+            display: none !important; 
           }
         }
       `}</style>
