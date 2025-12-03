@@ -70,7 +70,7 @@ const appId = 'manha-pos-v1';
 let app, auth, db;
 let initError = null;
 
-// Check if keys are set
+// Validation Check
 const isConfigConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY_HERE" && 
                            !firebaseConfig.authDomain.includes("your-project");
 
@@ -85,9 +85,8 @@ if (isConfigConfigured) {
   }
 }
 
-// --- 2. COMPONENT DEFINITIONS (Must be defined before App) ---
+// --- 2. COMPONENT DEFINITIONS (MOVED TO TOP TO PREVENT CRASHES) ---
 
-// SidebarItem Component - Fixes ReferenceError
 const SidebarItem = ({ id, icon: Icon, label, activeTab, isLocked, onClick }) => (
   <button
     onClick={() => onClick(id)}
@@ -482,7 +481,6 @@ export default function App() {
 
   // --- 4. RENDER UI ---
 
-  // Check Config
   if (!isConfigConfigured) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900 text-white p-8 flex-col">
@@ -509,7 +507,6 @@ export default function App() {
     );
   }
 
-  // Check Auth Errors
   if (authError) {
     return (
       <div className="flex items-center justify-center h-screen bg-red-50 text-red-900 p-8 flex-col">
@@ -525,7 +522,6 @@ export default function App() {
     );
   }
 
-  // Loading Screen
   if (!user) return (
     <div className="flex items-center justify-center h-screen bg-gray-50 flex-col">
       <Loader2 size={48} className="animate-spin text-blue-600 mb-4" />
@@ -534,7 +530,6 @@ export default function App() {
     </div>
   );
 
-  // Main App
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col p-4 print:hidden">
@@ -671,6 +666,7 @@ export default function App() {
                       <p className="text-gray-500">
                         {viewOrder.dateStr} 
                         {viewOrder.timeStr && <span className="block text-sm text-gray-400 mt-1">{viewOrder.timeStr}</span>}
+                        {!viewOrder.timeStr && viewOrder.createdAt && <span className="block text-sm text-gray-400 mt-1">{new Date(viewOrder.createdAt.seconds * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>}
                       </p>
                     </div>
                   </div>
