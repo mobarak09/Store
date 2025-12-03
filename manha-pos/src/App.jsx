@@ -25,7 +25,9 @@ import {
   Calendar,
   Filter,
   Wifi,
-  WifiOff
+  WifiOff,
+  User,
+  Phone
 } from 'lucide-react';
 
 // Firebase Imports
@@ -132,10 +134,19 @@ const Card = ({ children, className = '' }) => (
   <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${className}`}>{children}</div>
 );
 
-const Input = ({ label, value, onChange, placeholder, type = "text", className = "" }) => (
+const Input = ({ label, value, onChange, placeholder, type = "text", className = "", icon: Icon }) => (
   <div className={`flex flex-col ${className}`}>
     {label && <label className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">{label}</label>}
-    <input type={type} value={value} onChange={onChange} placeholder={placeholder} className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors" />
+    <div className="relative">
+      {Icon && <Icon size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />}
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        className={`w-full py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors ${Icon ? 'pl-9 pr-3' : 'px-3'}`}
+      />
+    </div>
   </div>
 );
 
@@ -171,6 +182,10 @@ export default function App() {
   // Filtering States
   const [filterType, setFilterType] = useState('daily');
   const [filterDate, setFilterDate] = useState(new Date().toLocaleDateString('en-CA'));
+  
+  // Customer Details State
+  const [customerName, setCustomerName] = useState("");
+  const [customerMobile, setCustomerMobile] = useState("");
   
   const [isLocked, setIsLocked] = useState(false);
   const [pinInput, setPinInput] = useState("");
@@ -245,7 +260,7 @@ export default function App() {
     }
   }, [user]);
 
-  // --- Implementation Methods ---
+  // --- Methods ---
   const handleTabChange = (tab) => {
     if (isLocked && (tab === 'sales' || tab === 'pos' || tab === 'settings')) {
       setTargetTab(tab);
@@ -291,18 +306,24 @@ export default function App() {
     setIsItemModalOpen(true);
   };
 
-  // FIX: Modal closing issues
   const handleSaveItem = async () => {
-    if (!user || !currentItem.name || !currentItem.price) return;
+    if (!user || !currentItem.name || !currentItem.price) {
+      alert("Please fill in Name and Price");
+      return;
+    }
+    
     try {
+      const safePrice = parseFloat(currentItem.price) || 0;
+      const safeStock = parseInt(currentItem.stock) || 0;
+
       const itemData = {
         name: currentItem.name,
-        price: parseFloat(currentItem.price),
-        stock: parseInt(currentItem.stock) || 0,
+        price: safePrice,
+        stock: safeStock,
         unit: currentItem.unit || 'pcs',
-        category: currentItem.category,
-        description: currentItem.description,
-        imageUrl: currentItem.imageUrl,
+        category: currentItem.category || 'General',
+        description: currentItem.description || '',
+        imageUrl: currentItem.imageUrl || '',
         updatedAt: serverTimestamp()
       };
 
@@ -317,7 +338,7 @@ export default function App() {
       setIsItemModalOpen(false);
     } catch (e) {
       console.error("Error saving item:", e);
-      alert("Error saving: Check your Firebase Database Rules.");
+      alert(`Error saving: ${e.message}`);
     }
   };
 
@@ -328,10 +349,10 @@ export default function App() {
       await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'items', id));
     } catch (e) {
       console.error("Error deleting item:", e);
+      alert(e.message);
     }
   };
 
-  // FIX: Added delete sale
   const handleDeleteSale = async (id) => {
     if (isLocked) return alert("Please unlock app first.");
     if (!confirm("Delete this order record permanently?")) return;
@@ -340,6 +361,7 @@ export default function App() {
       if (viewOrder && viewOrder.id === id) setViewOrder(null);
     } catch (e) {
       console.error("Error deleting sale:", e);
+      alert(e.message);
     }
   };
 
@@ -387,7 +409,6 @@ export default function App() {
     return cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
   }, [cart]);
 
-  // FIX: Complete sale logic with safe spinner reset
   const handleCheckout = async () => {
     if (isLocked) return alert("App is Locked.");
     if (!user || cart.length === 0) return;
@@ -404,7 +425,9 @@ export default function App() {
         dateStr: now.toLocaleDateString(),
         timeStr: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
         orderNumber: orderNumber,
-        customerName: "Walk-in Customer"
+        // Use input values or default
+        customerName: customerName.trim() || "Walk-in Customer",
+        customerMobile: customerMobile.trim() || "N/A"
       };
 
       const saleRef = await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'sales'), saleData);
@@ -418,13 +441,14 @@ export default function App() {
       }
 
       setCart([]);
+      setCustomerName(""); // Reset inputs
+      setCustomerMobile("");
       setActiveTab('sales');
       setViewOrder({ id: saleRef.id, ...saleData });
 
     } catch (e) {
       console.error("Checkout failed", e);
-      // Detailed alert so user knows why it failed
-      alert(`Checkout failed: ${e.message}\n\nPlease check Firebase Database Rules.`);
+      alert(`Checkout failed: ${e.message}`);
     } finally {
       setIsProcessingSale(false);
     }
@@ -483,6 +507,7 @@ export default function App() {
       }
     } catch (e) {
       console.error("Error updating sale:", e);
+      alert(e.message);
     }
   };
 
@@ -505,8 +530,10 @@ export default function App() {
 
   const filteredSales = useMemo(() => {
     return sales.filter(s => {
+      // Updated search logic to include mobile number
       const matchesSearch = (s.orderNumber && s.orderNumber.toLowerCase().includes(salesSearch.toLowerCase())) ||
-                            (s.customerName && s.customerName.toLowerCase().includes(salesSearch.toLowerCase()));
+                            (s.customerName && s.customerName.toLowerCase().includes(salesSearch.toLowerCase())) ||
+                            (s.customerMobile && s.customerMobile.toLowerCase().includes(salesSearch.toLowerCase()));
       
       let matchesDate = true;
       if (filterType !== 'all') {
@@ -543,7 +570,7 @@ export default function App() {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900 text-white p-8 flex-col">
         <h1 className="text-2xl font-bold mb-4 text-center">Setup Required</h1>
-        <p>API Keys are missing in Vercel Environment Variables.</p>
+        <p>API Keys are missing.</p>
       </div>
     );
   }
@@ -681,6 +708,26 @@ export default function App() {
               </div>
               <div className="p-6 bg-gray-50 border-t border-gray-200">
                 <div className="flex justify-between mb-6 text-xl font-bold text-gray-900"><span>Total</span><span>৳{cartTotal.toFixed(2)}</span></div>
+                
+                {/* NEW: Customer Details Inputs */}
+                <div className="mb-4 space-y-3">
+                  <Input 
+                    placeholder="Customer Name (Optional)" 
+                    value={customerName} 
+                    onChange={(e) => setCustomerName(e.target.value)} 
+                    icon={User}
+                    className="bg-white"
+                  />
+                  <Input 
+                    placeholder="Mobile Number (Optional)" 
+                    value={customerMobile} 
+                    onChange={(e) => setCustomerMobile(e.target.value)} 
+                    icon={Phone}
+                    type="tel"
+                    className="bg-white"
+                  />
+                </div>
+
                 <Button onClick={handleCheckout} disabled={cart.length === 0} loading={isProcessingSale} className="w-full py-3 text-lg" variant="primary">Complete Sale</Button>
               </div>
             </div>
@@ -699,7 +746,10 @@ export default function App() {
                   <div className="flex justify-between items-start border-b-2 border-gray-800 pb-8 mb-8">
                     <div>
                       <h1 className="text-3xl font-bold text-gray-900 mb-2">INVOICE</h1>
-                      <p className="text-gray-500 font-medium">{viewOrder.customerName}</p>
+                      <p className="text-gray-500 font-medium text-lg">{viewOrder.customerName}</p>
+                      {viewOrder.customerMobile && viewOrder.customerMobile !== "N/A" && (
+                        <p className="text-gray-400 text-sm mt-1">{viewOrder.customerMobile}</p>
+                      )}
                     </div>
                     <div className="text-right flex flex-col items-end">
                       <h2 className="text-xl font-bold text-gray-800 mb-2">{viewOrder.orderNumber}</h2>
@@ -734,6 +784,7 @@ export default function App() {
               <div className="space-y-6">
                  <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                    <h2 className="text-lg font-bold text-gray-800">Sales Records</h2>
+                   
                    <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-gray-200">
                      <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="p-2 text-sm bg-transparent outline-none font-medium text-gray-700">
                        <option value="daily">Daily</option>
@@ -745,11 +796,13 @@ export default function App() {
                      {filterType === 'monthly' && <input type="month" value={filterDate.slice(0, 7)} onChange={(e) => setFilterDate(e.target.value)} className="p-2 text-sm outline-none bg-gray-50 rounded" />}
                      {filterType === 'yearly' && <select value={filterDate.slice(0, 4)} onChange={(e) => setFilterDate(`${e.target.value}-01-01`)} className="p-2 text-sm outline-none bg-gray-50 rounded">{Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (<option key={year} value={year}>{year}</option>))}</select>}
                    </div>
+
                    <div className="relative">
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
                       <input type="text" placeholder="Search orders..." value={salesSearch} onChange={(e) => setSalesSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm w-64" />
                    </div>
                  </div>
+
                  <div className="grid grid-cols-2 gap-4">
                     <div className="bg-blue-600 rounded-xl p-4 text-white shadow-lg">
                       <p className="text-blue-100 text-sm mb-1 uppercase tracking-wider">Revenue ({filterType})</p>
@@ -760,6 +813,7 @@ export default function App() {
                       <h3 className="text-3xl font-bold text-gray-800">{filteredSales.length}</h3>
                     </div>
                  </div>
+
                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                    <table className="w-full text-left">
                      <thead className="bg-gray-50 border-b border-gray-200">
