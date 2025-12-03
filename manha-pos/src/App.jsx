@@ -23,7 +23,9 @@ import {
   ServerCrash,
   Loader2,
   Calendar,
-  Filter
+  Filter,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 
 // Firebase Imports
@@ -72,7 +74,6 @@ const appId = 'manha-pos-v1';
 let app, auth, db;
 let initError = null;
 
-// Validation Check
 const isConfigConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY_HERE" && 
                            !firebaseConfig.authDomain.includes("your-project");
 
@@ -214,7 +215,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- Data Listeners (PERSISTENCE LOGIC) ---
+  // --- Data Listeners ---
   useEffect(() => {
     if (!user || !db) return;
 
@@ -244,7 +245,7 @@ export default function App() {
     }
   }, [user]);
 
-  // --- Methods ---
+  // --- Implementation Methods ---
   const handleTabChange = (tab) => {
     if (isLocked && (tab === 'sales' || tab === 'pos' || tab === 'settings')) {
       setTargetTab(tab);
@@ -290,7 +291,7 @@ export default function App() {
     setIsItemModalOpen(true);
   };
 
-  // FIX 1: Modal now closes after saving
+  // FIX: Modal closing issues
   const handleSaveItem = async () => {
     if (!user || !currentItem.name || !currentItem.price) return;
     try {
@@ -313,10 +314,10 @@ export default function App() {
           createdAt: serverTimestamp()
         });
       }
-      setIsItemModalOpen(false); // <--- Explicit close
+      setIsItemModalOpen(false);
     } catch (e) {
       console.error("Error saving item:", e);
-      alert("Failed to save. Check internet.");
+      alert("Error saving: Check your Firebase Database Rules.");
     }
   };
 
@@ -330,13 +331,13 @@ export default function App() {
     }
   };
 
-  // FIX 3: Delete Sale Functionality
+  // FIX: Added delete sale
   const handleDeleteSale = async (id) => {
     if (isLocked) return alert("Please unlock app first.");
     if (!confirm("Delete this order record permanently?")) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'sales', id));
-      if (viewOrder && viewOrder.id === id) setViewOrder(null); // Close view if deleted
+      if (viewOrder && viewOrder.id === id) setViewOrder(null);
     } catch (e) {
       console.error("Error deleting sale:", e);
     }
@@ -386,7 +387,7 @@ export default function App() {
     return cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
   }, [cart]);
 
-  // FIX 2: Complete Sale visual feedback and immediate redirect
+  // FIX: Complete sale logic with safe spinner reset
   const handleCheckout = async () => {
     if (isLocked) return alert("App is Locked.");
     if (!user || cart.length === 0) return;
@@ -418,11 +419,12 @@ export default function App() {
 
       setCart([]);
       setActiveTab('sales');
-      setViewOrder({ id: saleRef.id, ...saleData }); // <--- Redirects to receipt view immediately
+      setViewOrder({ id: saleRef.id, ...saleData });
 
     } catch (e) {
       console.error("Checkout failed", e);
-      alert("Checkout failed. Check console.");
+      // Detailed alert so user knows why it failed
+      alert(`Checkout failed: ${e.message}\n\nPlease check Firebase Database Rules.`);
     } finally {
       setIsProcessingSale(false);
     }
@@ -541,7 +543,7 @@ export default function App() {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900 text-white p-8 flex-col">
         <h1 className="text-2xl font-bold mb-4 text-center">Setup Required</h1>
-        <p>API Keys are missing.</p>
+        <p>API Keys are missing in Vercel Environment Variables.</p>
       </div>
     );
   }
@@ -578,12 +580,12 @@ export default function App() {
           <SidebarItem id="settings" icon={Settings} label="Settings" activeTab={activeTab} isLocked={isLocked} onClick={handleTabChange} />
         </nav>
         <div className="mt-auto pt-4 border-t border-gray-100 space-y-2">
+           <div className="flex items-center px-2 text-xs text-gray-400 mb-2">
+             {user ? <span className="flex items-center text-green-600"><Wifi size={12} className="mr-1"/> Connected</span> : <span className="flex items-center text-red-500"><WifiOff size={12} className="mr-1"/> Offline</span>}
+           </div>
            <button onClick={toggleGlobalLock} className={`w-full flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors ${isLocked ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
              {isLocked ? <><Lock size={16} className="mr-2"/> App Locked</> : <><Unlock size={16} className="mr-2"/> App Unlocked</>}
            </button>
-           <div className="px-3 py-2 bg-blue-50 rounded-lg text-center">
-             <p className="text-xs font-semibold text-blue-800 uppercase">Cloud Sync Active</p>
-           </div>
         </div>
       </aside>
 
@@ -701,14 +703,7 @@ export default function App() {
                     </div>
                     <div className="text-right flex flex-col items-end">
                       <h2 className="text-xl font-bold text-gray-800 mb-2">{viewOrder.orderNumber}</h2>
-                      
-                      {/* FIX 2: QR Code is now BELOW order number in the header */}
-                      <img 
-                        src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${viewOrder.orderNumber}`} 
-                        alt="QR" 
-                        className="w-20 h-20 mb-2 border border-gray-200 p-1 rounded" 
-                      />
-
+                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${viewOrder.orderNumber}`} alt="QR" className="w-20 h-20 mb-2 border border-gray-200 p-1 rounded" />
                       <p className="text-gray-500">
                         {viewOrder.dateStr} 
                         {viewOrder.timeStr && <span className="block text-sm text-gray-400 mt-1">{viewOrder.timeStr}</span>}
@@ -739,7 +734,6 @@ export default function App() {
               <div className="space-y-6">
                  <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                    <h2 className="text-lg font-bold text-gray-800">Sales Records</h2>
-                   
                    <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-gray-200">
                      <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="p-2 text-sm bg-transparent outline-none font-medium text-gray-700">
                        <option value="daily">Daily</option>
@@ -751,13 +745,11 @@ export default function App() {
                      {filterType === 'monthly' && <input type="month" value={filterDate.slice(0, 7)} onChange={(e) => setFilterDate(e.target.value)} className="p-2 text-sm outline-none bg-gray-50 rounded" />}
                      {filterType === 'yearly' && <select value={filterDate.slice(0, 4)} onChange={(e) => setFilterDate(`${e.target.value}-01-01`)} className="p-2 text-sm outline-none bg-gray-50 rounded">{Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (<option key={year} value={year}>{year}</option>))}</select>}
                    </div>
-
                    <div className="relative">
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
                       <input type="text" placeholder="Search orders..." value={salesSearch} onChange={(e) => setSalesSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm w-64" />
                    </div>
                  </div>
-
                  <div className="grid grid-cols-2 gap-4">
                     <div className="bg-blue-600 rounded-xl p-4 text-white shadow-lg">
                       <p className="text-blue-100 text-sm mb-1 uppercase tracking-wider">Revenue ({filterType})</p>
@@ -768,7 +760,6 @@ export default function App() {
                       <h3 className="text-3xl font-bold text-gray-800">{filteredSales.length}</h3>
                     </div>
                  </div>
-
                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                    <table className="w-full text-left">
                      <thead className="bg-gray-50 border-b border-gray-200">
@@ -784,7 +775,6 @@ export default function App() {
                            <td className="px-6 py-4 text-center flex justify-center space-x-2">
                              <button onClick={() => setViewOrder(sale)} className="p-2 hover:bg-blue-50 text-blue-600 rounded-full"><FileText size={18} /></button>
                              <button onClick={() => openEditSale(sale)} className="p-2 hover:bg-orange-50 text-orange-500 rounded-full"><Edit size={18} /></button>
-                             {/* FIX 3: Delete Button added here */}
                              <button onClick={() => handleDeleteSale(sale.id)} className="p-2 hover:bg-red-50 text-red-500 rounded-full" title="Delete Sale"><Trash2 size={18} /></button>
                            </td>
                          </tr>
