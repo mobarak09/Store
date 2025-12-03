@@ -20,7 +20,8 @@ import {
   Settings,
   Download,
   Save,
-  ServerCrash
+  ServerCrash,
+  Loader2
 } from 'lucide-react';
 
 // Firebase Imports
@@ -71,7 +72,7 @@ const appId = 'manha-pos-v1';
 let app, auth, db;
 let initError = null;
 
-// Validation Check
+// Validation Check: Ensure keys are not default placeholders
 const isConfigConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY_HERE" && 
                            !firebaseConfig.authDomain.includes("your-project");
 
@@ -135,11 +136,13 @@ const Modal = ({ isOpen, onClose, title, children }) => {
 // --- Main Application ---
 
 export default function App() {
+  // Safe Error Boundary State
+  const [hasRuntimeError, setHasRuntimeError] = useState(false);
+  
   const [user, setUser] = useState(null);
   const [authError, setAuthError] = useState(initError);
-  const [loadingStatus, setLoadingStatus] = useState("Initializing...");
+  const [loadingStatus, setLoadingStatus] = useState("Initializing System...");
   
-  // App Logic States
   const [activeTab, setActiveTab] = useState('inventory');
   const [items, setItems] = useState([]);
   const [sales, setSales] = useState([]);
@@ -162,14 +165,11 @@ export default function App() {
 
   // --- Auth & Data Initialization ---
   useEffect(() => {
-    // 1. Check Configuration First
-    if (!isConfigConfigured) {
-      setAuthError("Environment Variables Missing");
-      setLoadingStatus("Failed");
+    // CRITICAL FIX: Do not attempt to use 'auth' if it is undefined (config missing)
+    if (!isConfigConfigured || !auth) {
+      setAuthError("Configuration Missing");
       return;
     }
-
-    if (initError) return;
 
     const initAuth = async () => {
       setLoadingStatus("Connecting to Database...");
@@ -195,31 +195,40 @@ export default function App() {
 
   // --- Data Listeners ---
   useEffect(() => {
-    if (!user) return;
+    // CRITICAL FIX: Do not run listeners if user or db is missing
+    if (!user || !db) return;
 
-    const itemsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'items');
-    const unsubItems = onSnapshot(itemsRef, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setItems(data.sort((a, b) => a.name.localeCompare(b.name)));
-    }, (err) => console.error("Items fetch error:", err));
+    try {
+      const itemsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'items');
+      const unsubItems = onSnapshot(itemsRef, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setItems(data.sort((a, b) => a.name.localeCompare(b.name)));
+      }, (err) => {
+        console.error("Items fetch error:", err);
+        // Do not crash app on permission error, just log it
+      });
 
-    const salesRef = collection(db, 'artifacts', appId, 'users', user.uid, 'sales');
-    const unsubSales = onSnapshot(salesRef, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setSales(data.sort((a, b) => {
-        const dateA = a.createdAt ? a.createdAt.seconds : Number.MAX_SAFE_INTEGER;
-        const dateB = b.createdAt ? b.createdAt.seconds : Number.MAX_SAFE_INTEGER;
-        return dateB - dateA;
-      }));
-    }, (err) => console.error("Sales fetch error:", err));
+      const salesRef = collection(db, 'artifacts', appId, 'users', user.uid, 'sales');
+      const unsubSales = onSnapshot(salesRef, (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setSales(data.sort((a, b) => {
+          const dateA = a.createdAt ? a.createdAt.seconds : Number.MAX_SAFE_INTEGER;
+          const dateB = b.createdAt ? b.createdAt.seconds : Number.MAX_SAFE_INTEGER;
+          return dateB - dateA;
+        }));
+      }, (err) => console.error("Sales fetch error:", err));
 
-    return () => {
-      unsubItems();
-      unsubSales();
-    };
+      return () => {
+        unsubItems();
+        unsubSales();
+      };
+    } catch (e) {
+      console.error("Listener Error:", e);
+    }
   }, [user]);
 
-  // --- Logic Implementations ---
+  // --- Implementation Methods ---
+  
   const handleTabChange = (tab) => {
     if (isLocked && (tab === 'sales' || tab === 'pos' || tab === 'settings')) {
       setTargetTab(tab);
@@ -289,15 +298,13 @@ export default function App() {
       setIsItemModalOpen(false);
     } catch (e) {
       console.error("Error saving item:", e);
+      alert("Failed to save item. Check console.");
     }
   };
 
   const handleDeleteItem = async (id) => {
-    if (isLocked) {
-      alert("Please unlock app to delete items.");
-      return;
-    }
-    if (!user || !confirm("Are you sure you want to delete this item?")) return;
+    if (isLocked) return alert("Please unlock app first.");
+    if (!confirm("Are you sure?")) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'items', id));
     } catch (e) {
@@ -350,10 +357,7 @@ export default function App() {
   }, [cart]);
 
   const handleCheckout = async () => {
-    if (isLocked) {
-      alert("App is Locked. Unlock to process sales.");
-      return;
-    }
+    if (isLocked) return alert("App is Locked.");
     if (!user || cart.length === 0) return;
     try {
       const now = new Date();
@@ -385,7 +389,7 @@ export default function App() {
 
     } catch (e) {
       console.error("Checkout failed", e);
-      alert("Checkout failed. Please try again.");
+      alert("Checkout failed. Check console.");
     }
   };
 
@@ -446,11 +450,7 @@ export default function App() {
   };
 
   const handleBackupData = () => {
-    const data = {
-      items: items,
-      sales: sales,
-      exportedAt: new Date().toISOString()
-    };
+    const data = { items: items, sales: sales, exportedAt: new Date().toISOString() };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -459,7 +459,7 @@ export default function App() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    alert("Backup downloaded! You can now upload this file to your Google Drive manually.");
+    alert("Backup downloaded!");
   };
 
   const filteredItems = useMemo(() => {
@@ -474,9 +474,7 @@ export default function App() {
     );
   }, [sales, salesSearch]);
 
-  // --- RENDERS ---
-
-  // 1. Missing Configuration Error Screen
+  // --- 1. CONFIGURATION ERROR SCREEN ---
   if (!isConfigConfigured) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900 text-white p-8 flex-col">
@@ -486,26 +484,24 @@ export default function App() {
           </div>
           <h1 className="text-2xl font-bold mb-4 text-center">Setup Required</h1>
           <p className="mb-6 text-slate-300 text-center">
-            The application cannot connect to the database because the API Keys are missing or using placeholders.
+            The app cannot connect to Firebase because API keys are missing.
           </p>
           <div className="bg-slate-950 p-4 rounded-lg text-sm font-mono text-blue-300 mb-6 border border-slate-800">
-            <p>VITE_FIREBASE_API_KEY is missing.</p>
+            <p>Error: VITE_FIREBASE_API_KEY not found.</p>
           </div>
           <div className="text-sm text-slate-400">
-            <strong>How to fix on Vercel:</strong>
-            <ol className="list-decimal pl-5 mt-2 space-y-1">
-              <li>Go to Vercel Dashboard {'>'} Project {'>'} Settings.</li>
-              <li>Click <strong>Environment Variables</strong>.</li>
-              <li>Add the keys from your Firebase Console.</li>
-              <li><strong>Redeploy</strong> your application.</li>
-            </ol>
+            <strong>Check Vercel Settings:</strong>
+            <ul className="list-disc pl-5 mt-2 space-y-1">
+              <li>Did you add Environment Variables?</li>
+              <li>Did you click 'Redeploy' after adding them?</li>
+            </ul>
           </div>
         </div>
       </div>
     );
   }
 
-  // 2. Authentication/Connection Error Screen
+  // --- 2. AUTHENTICATION ERROR SCREEN ---
   if (authError) {
     return (
       <div className="flex items-center justify-center h-screen bg-red-50 text-red-900 p-8 flex-col">
@@ -513,9 +509,14 @@ export default function App() {
           <AlertCircle size={48} className="mx-auto mb-4 text-red-500" />
           <h1 className="text-xl font-bold mb-2">Connection Failed</h1>
           <p className="text-red-600 mb-4">{authError}</p>
-          <p className="text-sm text-gray-500">
-            Please check your internet connection and ensure "Anonymous Authentication" is enabled in your Firebase Console.
-          </p>
+          <div className="text-left text-sm bg-gray-50 p-4 rounded border border-gray-200">
+            <strong>Possible Causes:</strong>
+            <ul className="list-disc pl-5 mt-1 space-y-1">
+              <li>Anonymous Auth is disabled in Firebase Console.</li>
+              <li>Internet connection is unstable.</li>
+              <li>API Key is invalid or restricted.</li>
+            </ul>
+          </div>
           <button 
             onClick={() => window.location.reload()}
             className="mt-6 bg-red-600 text-white px-6 py-2 rounded-full hover:bg-red-700 transition-colors w-full"
@@ -527,16 +528,16 @@ export default function App() {
     );
   }
 
-  // 3. Loading Screen
+  // --- 3. LOADING SCREEN ---
   if (!user) return (
     <div className="flex items-center justify-center h-screen bg-gray-50 flex-col">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mb-6"></div>
+      <Loader2 size={48} className="animate-spin text-blue-600 mb-4" />
       <h2 className="text-xl font-bold text-gray-800 mb-2">Manha POS</h2>
       <p className="text-gray-500 font-medium animate-pulse">{loadingStatus}</p>
     </div>
   );
 
-  // 4. Main App UI
+  // --- 4. MAIN UI ---
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
       {/* Sidebar */}
@@ -566,7 +567,6 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto print:overflow-visible h-full">
-        {/* Top Bar */}
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 print:hidden sticky top-0 z-10">
           <h2 className="text-xl font-semibold capitalize text-gray-800">{activeTab}</h2>
           <div className="flex items-center space-x-4">
@@ -582,7 +582,6 @@ export default function App() {
           </div>
         </header>
 
-        {/* --- TABS --- */}
         {activeTab === 'inventory' && (
           <div className="p-8">
             <div className="flex justify-between items-center mb-6">
@@ -613,7 +612,6 @@ export default function App() {
                       <h3 className="font-bold text-gray-800 truncate pr-2">{item.name}</h3>
                       <span className="font-bold text-blue-600">৳{item.price.toFixed(2)}</span>
                     </div>
-                    <p className="text-sm text-gray-500 mb-4 line-clamp-2 min-h-[2.5rem]">{item.description || 'No description provided.'}</p>
                     <div className="flex justify-between items-center pt-2 border-t border-gray-100">
                       <span className={`text-xs font-bold px-2 py-1 rounded-full ${item.stock < 5 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{item.stock} in stock</span>
                       <span className="text-xs text-gray-400 capitalize">{item.category}</span>
@@ -773,7 +771,6 @@ export default function App() {
         )}
       </main>
 
-      {/* --- MODALS --- */}
       <Modal isOpen={isItemModalOpen} onClose={() => setIsItemModalOpen(false)} title={currentItem.id ? "Edit Item" : "Add New Item"}>
         <div className="space-y-4">
           <Input label="Product Name" value={currentItem.name} onChange={e => setCurrentItem({...currentItem, name: e.target.value})} />
