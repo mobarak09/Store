@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
+  LayoutDashboard, 
   Package, 
   ShoppingCart, 
   FileText, 
@@ -8,7 +9,9 @@ import {
   Search, 
   Printer, 
   TrendingUp, 
+  AlertCircle,
   X,
+  QrCode,
   ArrowLeft,
   Image as ImageIcon,
   Edit,
@@ -38,22 +41,41 @@ import {
   serverTimestamp 
 } from "firebase/firestore";
 
+// --- Helper: Safely access Env Vars (Prevents crash on older build targets) ---
+const getEnv = (key, fallback) => {
+  try {
+    // Check if import.meta.env exists before accessing it
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      return import.meta.env[key] || fallback;
+    }
+  } catch (e) {
+    console.warn("Environment variable access failed, using fallback.");
+  }
+  return fallback;
+};
+
 // --- Firebase Configuration ---
-// Updated to support Vercel Environment Variables (Best Practice)
-// Fallback to placeholders if no env vars are found.
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "YOUR_API_KEY_HERE",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "your-project.firebaseapp.com",
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "your-project-id",
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "your-project.appspot.com",
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "00000000000",
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:00000000:web:00000000"
+  apiKey: getEnv("VITE_FIREBASE_API_KEY", "YOUR_API_KEY_HERE"),
+  authDomain: getEnv("VITE_FIREBASE_AUTH_DOMAIN", "your-project.firebaseapp.com"),
+  projectId: getEnv("VITE_FIREBASE_PROJECT_ID", "your-project-id"),
+  storageBucket: getEnv("VITE_FIREBASE_STORAGE_BUCKET", "your-project.appspot.com"),
+  messagingSenderId: getEnv("VITE_FIREBASE_MESSAGING_SENDER_ID", "00000000000"),
+  appId: getEnv("VITE_FIREBASE_APP_ID", "1:00000000:web:00000000")
 };
 
 // Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+let app, auth, db;
+let initError = null;
+
+try {
+  app = initializeApp(firebaseConfig);
+  auth = getAuth(app);
+  db = getFirestore(app);
+} catch (e) {
+  initError = e.message;
+  console.error("Firebase Init Error:", e);
+}
 
 // Static App ID for data separation
 const appId = 'manha-pos-v1';
@@ -125,6 +147,7 @@ const Modal = ({ isOpen, onClose, title, children }) => {
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [authError, setAuthError] = useState(initError); // Track errors
   const [activeTab, setActiveTab] = useState('inventory'); // inventory, pos, sales, settings
   const [items, setItems] = useState([]);
   const [sales, setSales] = useState([]);
@@ -152,12 +175,24 @@ export default function App() {
 
   // --- Auth & Data Initialization ---
   useEffect(() => {
-    // Standard anonymous sign-in for this simple POS setup
-    signInAnonymously(auth).catch((error) => {
-      console.error("Auth Error", error);
-    });
+    if (initError) return;
+
+    const initAuth = async () => {
+      try {
+        await signInAnonymously(auth);
+      } catch (error) {
+        console.error("Auth Error", error);
+        setAuthError(error.message);
+      }
+    };
+    initAuth();
     
-    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      if (u) {
+        setUser(u);
+        setAuthError(null); // Clear error on success
+      }
+    });
     return () => unsubscribe();
   }, []);
 
@@ -475,7 +510,30 @@ export default function App() {
     </button>
   );
 
-  if (!user) return <div className="h-screen flex items-center justify-center bg-gray-50">Loading App...</div>;
+  if (authError) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-red-50 text-red-700 p-8 text-center flex-col">
+        <AlertCircle size={48} className="mb-4" />
+        <h1 className="text-2xl font-bold mb-2">Connection Error</h1>
+        <p className="mb-4">{authError}</p>
+        <div className="bg-white p-4 rounded shadow text-sm text-gray-700 max-w-md">
+          <strong>Troubleshooting:</strong>
+          <ul className="list-disc text-left pl-6 mt-2 space-y-1">
+            <li>Ensure <strong>Anonymous Auth</strong> is enabled in Firebase Console.</li>
+            <li>Verify API Keys in <strong>Vercel Environment Variables</strong>.</li>
+            <li>If seeing "api-key-not-valid", check <code>VITE_FIREBASE_API_KEY</code>.</li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) return (
+    <div className="flex items-center justify-center h-screen bg-gray-50 flex-col">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+      <p className="text-gray-500 font-medium">Loading Manha POS...</p>
+    </div>
+  );
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
