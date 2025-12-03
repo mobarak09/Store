@@ -21,7 +21,9 @@ import {
   Download,
   Save,
   ServerCrash,
-  Loader2
+  Loader2,
+  Calendar,
+  Filter
 } from 'lucide-react';
 
 // Firebase Imports
@@ -85,7 +87,7 @@ if (isConfigConfigured) {
   }
 }
 
-// --- 2. COMPONENT DEFINITIONS (MOVED TO TOP TO PREVENT CRASHES) ---
+// --- 2. COMPONENT DEFINITIONS ---
 
 const SidebarItem = ({ id, icon: Icon, label, activeTab, isLocked, onClick }) => (
   <button
@@ -160,6 +162,10 @@ export default function App() {
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   
+  // Filtering States
+  const [filterType, setFilterType] = useState('daily'); // 'daily', 'monthly', 'yearly', 'all'
+  const [filterDate, setFilterDate] = useState(new Date().toLocaleDateString('en-CA')); // YYYY-MM-DD
+  
   const [isLocked, setIsLocked] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [showPinModal, setShowPinModal] = useState(false);
@@ -171,7 +177,8 @@ export default function App() {
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [isSaleEditModalOpen, setIsSaleEditModalOpen] = useState(false);
   
-  const [currentItem, setCurrentItem] = useState({ id: null, name: '', price: '', stock: '', category: '', description: '', imageUrl: '' });
+  // UPDATED: Added 'unit'
+  const [currentItem, setCurrentItem] = useState({ id: null, name: '', price: '', stock: '', unit: 'pcs', category: '', description: '', imageUrl: '' });
   const [currentSaleEdit, setCurrentSaleEdit] = useState({ id: null, orderNumber: '', dateStr: '', customerName: '', items: [] });
 
   // --- Auth & Data Initialization ---
@@ -270,12 +277,12 @@ export default function App() {
   };
 
   const openAddItem = () => {
-    setCurrentItem({ id: null, name: '', price: '', stock: '', category: '', description: '', imageUrl: '' });
+    setCurrentItem({ id: null, name: '', price: '', stock: '', unit: 'pcs', category: '', description: '', imageUrl: '' });
     setIsItemModalOpen(true);
   };
 
   const openEditItem = (item) => {
-    setCurrentItem({ ...item });
+    setCurrentItem({ ...item, unit: item.unit || 'pcs' });
     setIsItemModalOpen(true);
   };
 
@@ -286,6 +293,7 @@ export default function App() {
         name: currentItem.name,
         price: parseFloat(currentItem.price),
         stock: parseInt(currentItem.stock) || 0,
+        unit: currentItem.unit || 'pcs',
         category: currentItem.category,
         description: currentItem.description,
         imageUrl: currentItem.imageUrl,
@@ -325,7 +333,8 @@ export default function App() {
         if (existing.qty >= item.stock) return prev; 
         return prev.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i);
       }
-      return [...prev, { ...item, qty: 1 }];
+      // UPDATED: Include unit in cart item
+      return [...prev, { ...item, qty: 1, unit: item.unit || 'pcs' }];
     });
   };
 
@@ -467,42 +476,60 @@ export default function App() {
     alert("Backup downloaded!");
   };
 
+  // --- Filtering & Totals ---
   const filteredItems = useMemo(() => {
     return items.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [items, searchTerm]);
 
   const filteredSales = useMemo(() => {
-    return sales.filter(s => 
-      (s.orderNumber && s.orderNumber.toLowerCase().includes(salesSearch.toLowerCase())) ||
-      s.dateStr.includes(salesSearch) ||
-      (s.customerName && s.customerName.toLowerCase().includes(salesSearch.toLowerCase()))
-    );
-  }, [sales, salesSearch]);
+    return sales.filter(s => {
+      // 1. Text Search
+      const matchesSearch = (s.orderNumber && s.orderNumber.toLowerCase().includes(salesSearch.toLowerCase())) ||
+                            (s.customerName && s.customerName.toLowerCase().includes(salesSearch.toLowerCase()));
+      
+      // 2. Date Filter
+      let matchesDate = true;
+      if (filterType !== 'all') {
+        let saleDate = null;
+        
+        // Try to parse timestamp first, then dateStr
+        if (s.createdAt && s.createdAt.seconds) {
+          saleDate = new Date(s.createdAt.seconds * 1000);
+        } else {
+          saleDate = new Date(s.dateStr); 
+        }
+
+        if (saleDate && !isNaN(saleDate.getTime())) {
+          if (filterType === 'daily') {
+            // Compare YYYY-MM-DD
+            const saleYMD = saleDate.toLocaleDateString('en-CA'); // Get local YYYY-MM-DD
+            matchesDate = saleYMD === filterDate;
+          } else if (filterType === 'monthly') {
+            // Compare YYYY-MM
+            const saleYM = `${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`;
+            matchesDate = saleYM === filterDate.slice(0, 7);
+          } else if (filterType === 'yearly') {
+            // Compare YYYY
+            matchesDate = saleDate.getFullYear().toString() === filterDate.slice(0, 4);
+          }
+        }
+      }
+
+      return matchesSearch && matchesDate;
+    });
+  }, [sales, salesSearch, filterType, filterDate]);
+
+  const periodRevenue = useMemo(() => {
+    return filteredSales.reduce((acc, s) => acc + (s.total || 0), 0);
+  }, [filteredSales]);
 
   // --- 4. RENDER UI ---
 
   if (!isConfigConfigured) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900 text-white p-8 flex-col">
-        <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-lg w-full border border-slate-700">
-          <div className="flex items-center justify-center mb-6 text-red-500">
-            <ServerCrash size={64} />
-          </div>
-          <h1 className="text-2xl font-bold mb-4 text-center">Setup Required</h1>
-          <p className="mb-6 text-slate-300 text-center">
-            The app cannot connect to Firebase because API keys are missing.
-          </p>
-          <div className="bg-slate-950 p-4 rounded-lg text-sm font-mono text-blue-300 mb-6 border border-slate-800">
-            <p>Error: VITE_FIREBASE_API_KEY not found.</p>
-          </div>
-          <div className="text-sm text-slate-400">
-            <strong>Check Vercel Settings:</strong>
-            <ul className="list-disc pl-5 mt-2 space-y-1">
-              <li>Did you add Environment Variables?</li>
-              <li>Did you click 'Redeploy' after adding them?</li>
-            </ul>
-          </div>
-        </div>
+        <h1 className="text-2xl font-bold mb-4 text-center">Setup Required</h1>
+        <p>API Keys are missing in Vercel Environment Variables.</p>
       </div>
     );
   }
@@ -510,14 +537,9 @@ export default function App() {
   if (authError) {
     return (
       <div className="flex items-center justify-center h-screen bg-red-50 text-red-900 p-8 flex-col">
-        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
-          <AlertCircle size={48} className="mx-auto mb-4 text-red-500" />
-          <h1 className="text-xl font-bold mb-2">Connection Failed</h1>
-          <p className="text-red-600 mb-4">{authError}</p>
-          <button onClick={() => window.location.reload()} className="mt-6 bg-red-600 text-white px-6 py-2 rounded-full hover:bg-red-700 transition-colors w-full">
-            Retry Connection
-          </button>
-        </div>
+        <h1 className="text-xl font-bold mb-2">Connection Failed</h1>
+        <p>{authError}</p>
+        <button onClick={() => window.location.reload()} className="mt-6 bg-red-600 text-white px-6 py-2 rounded-full">Retry</button>
       </div>
     );
   }
@@ -593,7 +615,9 @@ export default function App() {
                       <span className="font-bold text-blue-600">৳{item.price.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${item.stock < 5 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{item.stock} in stock</span>
+                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${item.stock < 5 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                        {item.stock} {item.unit || 'pcs'}
+                      </span>
                       <span className="text-xs text-gray-400 capitalize">{item.category}</span>
                     </div>
                   </div>
@@ -614,7 +638,9 @@ export default function App() {
                       <span className="font-bold text-gray-800">{item.name}</span>
                       <span className="font-bold text-blue-600">৳{item.price}</span>
                     </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-md ${item.stock > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>Stock: {item.stock}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-md ${item.stock > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      Stock: {item.stock} {item.unit || 'pcs'}
+                    </span>
                   </button>
                 ))}
               </div>
@@ -628,7 +654,7 @@ export default function App() {
                   <div key={item.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-gray-100 shadow-sm">
                     <div className="flex-1">
                       <p className="font-medium text-gray-800">{item.name}</p>
-                      <p className="text-sm text-gray-500">৳{item.price} x {item.qty}</p>
+                      <p className="text-sm text-gray-500">৳{item.price} x {item.qty} {item.unit || 'pcs'}</p>
                     </div>
                     <div className="flex items-center space-x-1">
                        <button onClick={() => updateCartQty(item.id, -1)} className="w-6 h-6 flex items-center justify-center bg-gray-100 rounded hover:bg-gray-200">-</button>
@@ -666,7 +692,6 @@ export default function App() {
                       <p className="text-gray-500">
                         {viewOrder.dateStr} 
                         {viewOrder.timeStr && <span className="block text-sm text-gray-400 mt-1">{viewOrder.timeStr}</span>}
-                        {!viewOrder.timeStr && viewOrder.createdAt && <span className="block text-sm text-gray-400 mt-1">{new Date(viewOrder.createdAt.seconds * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>}
                       </p>
                     </div>
                   </div>
@@ -677,7 +702,10 @@ export default function App() {
                     <tbody className="divide-y divide-gray-100">
                       {viewOrder.items.map((item, idx) => (
                         <tr key={idx}>
-                          <td className="py-4 text-gray-800">{item.name}</td><td className="py-4 text-center text-gray-600">{item.qty}</td><td className="py-4 text-right text-gray-600">৳{item.price.toFixed(2)}</td><td className="py-4 text-right font-medium text-gray-900">৳{(item.price * item.qty).toFixed(2)}</td>
+                          <td className="py-4 text-gray-800">{item.name}</td>
+                          <td className="py-4 text-center text-gray-600">{item.qty} {item.unit || 'pcs'}</td>
+                          <td className="py-4 text-right text-gray-600">৳{item.price.toFixed(2)}</td>
+                          <td className="py-4 text-right font-medium text-gray-900">৳{(item.price * item.qty).toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -693,13 +721,59 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-6">
-                 <div className="flex justify-between items-center">
+                 <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                    <h2 className="text-lg font-bold text-gray-800">Sales Records</h2>
+                   
+                   {/* DATE FILTERS */}
+                   <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-gray-200">
+                     <select 
+                       value={filterType} 
+                       onChange={(e) => setFilterType(e.target.value)}
+                       className="p-2 text-sm bg-transparent outline-none font-medium text-gray-700"
+                     >
+                       <option value="daily">Daily</option>
+                       <option value="monthly">Monthly</option>
+                       <option value="yearly">Yearly</option>
+                       <option value="all">All Time</option>
+                     </select>
+                     
+                     {filterType === 'daily' && (
+                       <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="p-2 text-sm outline-none bg-gray-50 rounded" />
+                     )}
+                     {filterType === 'monthly' && (
+                       <input type="month" value={filterDate.slice(0, 7)} onChange={(e) => setFilterDate(e.target.value)} className="p-2 text-sm outline-none bg-gray-50 rounded" />
+                     )}
+                     {filterType === 'yearly' && (
+                        <select 
+                          value={filterDate.slice(0, 4)} 
+                          onChange={(e) => setFilterDate(`${e.target.value}-01-01`)}
+                          className="p-2 text-sm outline-none bg-gray-50 rounded"
+                        >
+                          {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (
+                            <option key={year} value={year}>{year}</option>
+                          ))}
+                        </select>
+                     )}
+                   </div>
+
                    <div className="relative">
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
                       <input type="text" placeholder="Search orders..." value={salesSearch} onChange={(e) => setSalesSearch(e.target.value)} className="pl-9 pr-4 py-2 bg-white border border-gray-200 rounded-lg text-sm w-64" />
                    </div>
                  </div>
+
+                 {/* SUMMARY CARD */}
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-blue-600 rounded-xl p-4 text-white shadow-lg">
+                      <p className="text-blue-100 text-sm mb-1 uppercase tracking-wider">Revenue ({filterType})</p>
+                      <h3 className="text-3xl font-bold">৳{periodRevenue.toLocaleString()}</h3>
+                    </div>
+                    <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm">
+                      <p className="text-gray-500 text-sm mb-1 uppercase tracking-wider">Orders ({filterType})</p>
+                      <h3 className="text-3xl font-bold text-gray-800">{filteredSales.length}</h3>
+                    </div>
+                 </div>
+
                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                    <table className="w-full text-left">
                      <thead className="bg-gray-50 border-b border-gray-200">
@@ -753,7 +827,28 @@ export default function App() {
              <Input label="Price (BDT)" type="number" className="flex-1" value={currentItem.price} onChange={e => setCurrentItem({...currentItem, price: e.target.value})} />
              <Input label="Stock Qty" type="number" className="flex-1" value={currentItem.stock} onChange={e => setCurrentItem({...currentItem, stock: e.target.value})} />
           </div>
-          <Input label="Category" value={currentItem.category} onChange={e => setCurrentItem({...currentItem, category: e.target.value})} />
+          {/* UPDATED: Unit Input */}
+          <div className="flex space-x-4">
+             <div className="flex-1">
+               <label className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Unit</label>
+               <select 
+                 value={currentItem.unit} 
+                 onChange={e => setCurrentItem({...currentItem, unit: e.target.value})}
+                 className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+               >
+                 <option value="pcs">Pieces (pcs)</option>
+                 <option value="kg">Kilogram (kg)</option>
+                 <option value="gm">Gram (gm)</option>
+                 <option value="ltr">Liter (ltr)</option>
+                 <option value="box">Box</option>
+                 <option value="ft">Feet (ft)</option>
+                 <option value="cft">Cubic Feet (cft)</option>
+                 <option value="sqft">Square Feet (sqft)</option>
+                 <option value="m">Meter (m)</option>
+               </select>
+             </div>
+             <Input label="Category" className="flex-1" value={currentItem.category} onChange={e => setCurrentItem({...currentItem, category: e.target.value})} />
+          </div>
           <Input label="Image URL" value={currentItem.imageUrl} onChange={e => setCurrentItem({...currentItem, imageUrl: e.target.value})} />
           <Button onClick={handleSaveItem} className="w-full mt-2">Save Changes</Button>
         </div>
@@ -770,6 +865,7 @@ export default function App() {
               <div key={index} className="flex items-center space-x-2 bg-white p-2 rounded border border-gray-200 mb-2">
                 <span className="flex-1 text-sm font-medium">{item.name}</span>
                 <input type="number" min="0" value={item.qty} onChange={(e) => updateSaleEditItemQty(index, e.target.value)} className="w-16 p-1 border border-gray-300 rounded text-sm text-center" />
+                <span className="text-xs text-gray-500">{item.unit || 'pcs'}</span>
                 <button onClick={() => removeSaleEditItem(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 size={14} /></button>
               </div>
             ))}
