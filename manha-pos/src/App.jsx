@@ -425,7 +425,6 @@ export default function App() {
         dateStr: now.toLocaleDateString(),
         timeStr: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
         orderNumber: orderNumber,
-        // Use input values or default
         customerName: customerName.trim() || "Walk-in Customer",
         customerMobile: customerMobile.trim() || "N/A"
       };
@@ -441,7 +440,7 @@ export default function App() {
       }
 
       setCart([]);
-      setCustomerName(""); // Reset inputs
+      setCustomerName("");
       setCustomerMobile("");
       setActiveTab('sales');
       setViewOrder({ id: saleRef.id, ...saleData });
@@ -707,27 +706,29 @@ export default function App() {
                 ))}
               </div>
               <div className="p-6 bg-gray-50 border-t border-gray-200">
-                <div className="flex justify-between mb-6 text-xl font-bold text-gray-900"><span>Total</span><span>৳{cartTotal.toFixed(2)}</span></div>
                 
-                {/* NEW: Customer Details Inputs */}
-                <div className="mb-4 space-y-3">
-                  <Input 
-                    placeholder="Customer Name (Optional)" 
-                    value={customerName} 
-                    onChange={(e) => setCustomerName(e.target.value)} 
-                    icon={User}
-                    className="bg-white"
+                {/* --- CUSTOMER INFO BOX (Always visible now) --- */}
+                <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-4 space-y-3">
+                  <div className="flex items-center text-gray-500 text-xs font-bold uppercase tracking-wide">
+                    <User size={14} className="mr-1"/> Customer Details
+                  </div>
+                  <input 
+                    type="text" 
+                    placeholder="Customer Name"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className="w-full p-2 text-sm bg-white border border-gray-300 rounded focus:border-blue-500 outline-none"
                   />
-                  <Input 
-                    placeholder="Mobile Number (Optional)" 
-                    value={customerMobile} 
-                    onChange={(e) => setCustomerMobile(e.target.value)} 
-                    icon={Phone}
-                    type="tel"
-                    className="bg-white"
+                  <input 
+                    type="tel" 
+                    placeholder="Mobile Number"
+                    value={customerMobile}
+                    onChange={(e) => setCustomerMobile(e.target.value)}
+                    className="w-full p-2 text-sm bg-white border border-gray-300 rounded focus:border-blue-500 outline-none"
                   />
                 </div>
 
+                <div className="flex justify-between mb-4 text-xl font-bold text-gray-900"><span>Total</span><span>৳{cartTotal.toFixed(2)}</span></div>
                 <Button onClick={handleCheckout} disabled={cart.length === 0} loading={isProcessingSale} className="w-full py-3 text-lg" variant="primary">Complete Sale</Button>
               </div>
             </div>
@@ -742,18 +743,18 @@ export default function App() {
                   <Button variant="secondary" onClick={() => setViewOrder(null)} icon={ArrowLeft}>Back</Button>
                   <Button onClick={() => window.print()} icon={Printer}>Print / Save PDF</Button>
                 </div>
+                {/* RECEIPT CONTENT AREA (A6 Size optimized) */}
                 <div className="p-8 md:p-12 overflow-y-auto flex-1" id="receipt-area">
                   <div className="flex justify-between items-start border-b-2 border-gray-800 pb-8 mb-8">
                     <div>
                       <h1 className="text-3xl font-bold text-gray-900 mb-2">INVOICE</h1>
-                      <p className="text-gray-500 font-medium text-lg">{viewOrder.customerName}</p>
+                      <p className="text-gray-900 font-bold text-lg">{viewOrder.customerName}</p>
                       {viewOrder.customerMobile && viewOrder.customerMobile !== "N/A" && (
-                        <p className="text-gray-400 text-sm mt-1">{viewOrder.customerMobile}</p>
+                        <p className="text-gray-500 text-sm mt-1">Mobile: {viewOrder.customerMobile}</p>
                       )}
                     </div>
                     <div className="text-right flex flex-col items-end">
                       <h2 className="text-xl font-bold text-gray-800 mb-2">{viewOrder.orderNumber}</h2>
-                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${viewOrder.orderNumber}`} alt="QR" className="w-20 h-20 mb-2 border border-gray-200 p-1 rounded" />
                       <p className="text-gray-500">
                         {viewOrder.dateStr} 
                         {viewOrder.timeStr && <span className="block text-sm text-gray-400 mt-1">{viewOrder.timeStr}</span>}
@@ -778,10 +779,16 @@ export default function App() {
                   <div className="flex justify-end border-t border-gray-200 pt-8">
                     <div className="flex justify-between text-xl font-bold text-gray-900 w-64"><span>Grand Total</span><span>৳{viewOrder.total.toFixed(2)}</span></div>
                   </div>
+                  <div className="mt-8 text-center border-t pt-8">
+                     <p className="font-bold text-lg mb-2">Thank you for shopping with Manha!</p>
+                     <p className="text-xs text-gray-400 mb-4">Generated by Manha POS</p>
+                     <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${viewOrder.orderNumber}`} alt="QR" className="mx-auto w-24 h-24" />
+                  </div>
                 </div>
               </div>
             ) : (
               <div className="space-y-6">
+                 {/* ... (Existing Sales History UI) ... */}
                  <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                    <h2 className="text-lg font-bold text-gray-800">Sales Records</h2>
                    
@@ -916,6 +923,46 @@ export default function App() {
           <Button onClick={verifyPin} className="w-full">Unlock</Button>
         </div>
       </Modal>
+
+      {/* --- PRINT STYLES FOR A6 --- */}
+      <style>{`
+        @media print {
+          @page {
+            size: 105mm 148mm; 
+            margin: 5mm; 
+          }
+          body { 
+            background: white; 
+            margin: 0; 
+            padding: 0; 
+            font-size: 10pt; /* Smaller font for A6 */
+          }
+          aside, header, .no-print, button, input { 
+            display: none !important; 
+          }
+          main { 
+            overflow: visible !important; 
+            position: static !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          #receipt-area {
+            display: block !important;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: auto;
+            overflow: visible !important;
+            background: white;
+            padding: 0 !important;
+          }
+          /* Ensure text is black for crisp printing */
+          * {
+            color: black !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
