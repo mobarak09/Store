@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  LayoutDashboard, 
   Package, 
   ShoppingCart, 
   FileText, 
@@ -9,9 +8,7 @@ import {
   Search, 
   Printer, 
   TrendingUp, 
-  AlertCircle,
   X,
-  QrCode,
   ArrowLeft,
   Image as ImageIcon,
   Edit,
@@ -42,15 +39,15 @@ import {
 } from "firebase/firestore";
 
 // --- Firebase Configuration ---
-// TODO: Replace the object below with your actual Firebase project configuration.
-// You can get this from: Firebase Console -> Project Settings -> General -> Your Apps
+// Updated to support Vercel Environment Variables (Best Practice)
+// Fallback to placeholders if no env vars are found.
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY_HERE",
-  authDomain: "your-project-id.firebaseapp.com",
-  projectId: "your-project-id",
-  storageBucket: "your-project-id.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "YOUR_API_KEY_HERE",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "your-project.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "your-project-id",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "your-project.appspot.com",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "00000000000",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:00000000:web:00000000"
 };
 
 // Initialize Firebase
