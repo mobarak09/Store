@@ -104,7 +104,7 @@ const SidebarItem = ({ id, icon: Icon, label, activeTab, isLocked, onClick }) =>
   </button>
 );
 
-const Button = ({ children, onClick, variant = 'primary', className = '', icon: Icon, disabled = false }) => {
+const Button = ({ children, onClick, variant = 'primary', className = '', icon: Icon, disabled = false, loading = false }) => {
   const baseStyle = "flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1";
   const variants = {
     primary: "bg-blue-600 hover:bg-blue-700 text-white focus:ring-blue-500 shadow-sm",
@@ -116,8 +116,12 @@ const Button = ({ children, onClick, variant = 'primary', className = '', icon: 
   };
 
   return (
-    <button onClick={onClick} disabled={disabled} className={`${baseStyle} ${variants[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}>
-      {Icon && <Icon size={18} className="mr-2" />}
+    <button 
+      onClick={onClick} 
+      disabled={disabled || loading}
+      className={`${baseStyle} ${variants[variant]} ${disabled || loading ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
+    >
+      {loading ? <Loader2 size={18} className="animate-spin mr-2" /> : Icon && <Icon size={18} className="mr-2" />}
       {children}
     </button>
   );
@@ -161,10 +165,11 @@ export default function App() {
   const [sales, setSales] = useState([]);
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [isProcessingSale, setIsProcessingSale] = useState(false);
   
   // Filtering States
-  const [filterType, setFilterType] = useState('daily'); // 'daily', 'monthly', 'yearly', 'all'
-  const [filterDate, setFilterDate] = useState(new Date().toLocaleDateString('en-CA')); // YYYY-MM-DD
+  const [filterType, setFilterType] = useState('daily');
+  const [filterDate, setFilterDate] = useState(new Date().toLocaleDateString('en-CA'));
   
   const [isLocked, setIsLocked] = useState(false);
   const [pinInput, setPinInput] = useState("");
@@ -177,7 +182,6 @@ export default function App() {
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [isSaleEditModalOpen, setIsSaleEditModalOpen] = useState(false);
   
-  // UPDATED: Added 'unit'
   const [currentItem, setCurrentItem] = useState({ id: null, name: '', price: '', stock: '', unit: 'pcs', category: '', description: '', imageUrl: '' });
   const [currentSaleEdit, setCurrentSaleEdit] = useState({ id: null, orderNumber: '', dateStr: '', customerName: '', items: [] });
 
@@ -210,7 +214,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- Data Listeners ---
+  // --- Data Listeners (PERSISTENCE LOGIC) ---
   useEffect(() => {
     if (!user || !db) return;
 
@@ -219,7 +223,7 @@ export default function App() {
       const unsubItems = onSnapshot(itemsRef, (snapshot) => {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setItems(data.sort((a, b) => a.name.localeCompare(b.name)));
-      }, (err) => console.error("Items fetch error:", err));
+      });
 
       const salesRef = collection(db, 'artifacts', appId, 'users', user.uid, 'sales');
       const unsubSales = onSnapshot(salesRef, (snapshot) => {
@@ -229,7 +233,7 @@ export default function App() {
           const dateB = b.createdAt ? b.createdAt.seconds : Number.MAX_SAFE_INTEGER;
           return dateB - dateA;
         }));
-      }, (err) => console.error("Sales fetch error:", err));
+      });
 
       return () => {
         unsubItems();
@@ -240,7 +244,7 @@ export default function App() {
     }
   }, [user]);
 
-  // --- Implementation Methods ---
+  // --- Methods ---
   const handleTabChange = (tab) => {
     if (isLocked && (tab === 'sales' || tab === 'pos' || tab === 'settings')) {
       setTargetTab(tab);
@@ -286,6 +290,7 @@ export default function App() {
     setIsItemModalOpen(true);
   };
 
+  // FIX 1: Modal now closes after saving
   const handleSaveItem = async () => {
     if (!user || !currentItem.name || !currentItem.price) return;
     try {
@@ -308,10 +313,10 @@ export default function App() {
           createdAt: serverTimestamp()
         });
       }
-      setIsItemModalOpen(false);
+      setIsItemModalOpen(false); // <--- Explicit close
     } catch (e) {
       console.error("Error saving item:", e);
-      alert("Failed to save item. Check console.");
+      alert("Failed to save. Check internet.");
     }
   };
 
@@ -325,6 +330,18 @@ export default function App() {
     }
   };
 
+  // FIX 3: Delete Sale Functionality
+  const handleDeleteSale = async (id) => {
+    if (isLocked) return alert("Please unlock app first.");
+    if (!confirm("Delete this order record permanently?")) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'sales', id));
+      if (viewOrder && viewOrder.id === id) setViewOrder(null); // Close view if deleted
+    } catch (e) {
+      console.error("Error deleting sale:", e);
+    }
+  };
+
   const addToCart = (item) => {
     if (item.stock <= 0) return;
     setCart(prev => {
@@ -333,7 +350,6 @@ export default function App() {
         if (existing.qty >= item.stock) return prev; 
         return prev.map(i => i.id === item.id ? { ...i, qty: i.qty + 1 } : i);
       }
-      // UPDATED: Include unit in cart item
       return [...prev, { ...item, qty: 1, unit: item.unit || 'pcs' }];
     });
   };
@@ -370,9 +386,12 @@ export default function App() {
     return cart.reduce((acc, item) => acc + (item.price * item.qty), 0);
   }, [cart]);
 
+  // FIX 2: Complete Sale visual feedback and immediate redirect
   const handleCheckout = async () => {
     if (isLocked) return alert("App is Locked.");
     if (!user || cart.length === 0) return;
+    
+    setIsProcessingSale(true);
     try {
       const now = new Date();
       const orderNumber = `ORD-${Math.floor(100000 + Math.random() * 900000)}`;
@@ -399,11 +418,13 @@ export default function App() {
 
       setCart([]);
       setActiveTab('sales');
-      setViewOrder({ id: saleRef.id, ...saleData });
+      setViewOrder({ id: saleRef.id, ...saleData }); // <--- Redirects to receipt view immediately
 
     } catch (e) {
       console.error("Checkout failed", e);
       alert("Checkout failed. Check console.");
+    } finally {
+      setIsProcessingSale(false);
     }
   };
 
@@ -476,23 +497,18 @@ export default function App() {
     alert("Backup downloaded!");
   };
 
-  // --- Filtering & Totals ---
   const filteredItems = useMemo(() => {
     return items.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [items, searchTerm]);
 
   const filteredSales = useMemo(() => {
     return sales.filter(s => {
-      // 1. Text Search
       const matchesSearch = (s.orderNumber && s.orderNumber.toLowerCase().includes(salesSearch.toLowerCase())) ||
                             (s.customerName && s.customerName.toLowerCase().includes(salesSearch.toLowerCase()));
       
-      // 2. Date Filter
       let matchesDate = true;
       if (filterType !== 'all') {
         let saleDate = null;
-        
-        // Try to parse timestamp first, then dateStr
         if (s.createdAt && s.createdAt.seconds) {
           saleDate = new Date(s.createdAt.seconds * 1000);
         } else {
@@ -501,20 +517,16 @@ export default function App() {
 
         if (saleDate && !isNaN(saleDate.getTime())) {
           if (filterType === 'daily') {
-            // Compare YYYY-MM-DD
-            const saleYMD = saleDate.toLocaleDateString('en-CA'); // Get local YYYY-MM-DD
+            const saleYMD = saleDate.toLocaleDateString('en-CA');
             matchesDate = saleYMD === filterDate;
           } else if (filterType === 'monthly') {
-            // Compare YYYY-MM
             const saleYM = `${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`;
             matchesDate = saleYM === filterDate.slice(0, 7);
           } else if (filterType === 'yearly') {
-            // Compare YYYY
             matchesDate = saleDate.getFullYear().toString() === filterDate.slice(0, 4);
           }
         }
       }
-
       return matchesSearch && matchesDate;
     });
   }, [sales, salesSearch, filterType, filterDate]);
@@ -529,7 +541,7 @@ export default function App() {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900 text-white p-8 flex-col">
         <h1 className="text-2xl font-bold mb-4 text-center">Setup Required</h1>
-        <p>API Keys are missing in Vercel Environment Variables.</p>
+        <p>API Keys are missing.</p>
       </div>
     );
   }
@@ -667,7 +679,7 @@ export default function App() {
               </div>
               <div className="p-6 bg-gray-50 border-t border-gray-200">
                 <div className="flex justify-between mb-6 text-xl font-bold text-gray-900"><span>Total</span><span>৳{cartTotal.toFixed(2)}</span></div>
-                <Button onClick={handleCheckout} disabled={cart.length === 0} className="w-full py-3 text-lg" variant="primary">Complete Sale</Button>
+                <Button onClick={handleCheckout} disabled={cart.length === 0} loading={isProcessingSale} className="w-full py-3 text-lg" variant="primary">Complete Sale</Button>
               </div>
             </div>
           </div>
@@ -687,8 +699,16 @@ export default function App() {
                       <h1 className="text-3xl font-bold text-gray-900 mb-2">INVOICE</h1>
                       <p className="text-gray-500 font-medium">{viewOrder.customerName}</p>
                     </div>
-                    <div className="text-right">
-                      <h2 className="text-xl font-bold text-gray-800">{viewOrder.orderNumber}</h2>
+                    <div className="text-right flex flex-col items-end">
+                      <h2 className="text-xl font-bold text-gray-800 mb-2">{viewOrder.orderNumber}</h2>
+                      
+                      {/* FIX 2: QR Code is now BELOW order number in the header */}
+                      <img 
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${viewOrder.orderNumber}`} 
+                        alt="QR" 
+                        className="w-20 h-20 mb-2 border border-gray-200 p-1 rounded" 
+                      />
+
                       <p className="text-gray-500">
                         {viewOrder.dateStr} 
                         {viewOrder.timeStr && <span className="block text-sm text-gray-400 mt-1">{viewOrder.timeStr}</span>}
@@ -713,10 +733,6 @@ export default function App() {
                   <div className="flex justify-end border-t border-gray-200 pt-8">
                     <div className="flex justify-between text-xl font-bold text-gray-900 w-64"><span>Grand Total</span><span>৳{viewOrder.total.toFixed(2)}</span></div>
                   </div>
-                  <div className="mt-12 text-center">
-                     <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${viewOrder.orderNumber}`} alt="QR" className="mx-auto w-24 h-24" />
-                     <p className="text-xs text-gray-400 mt-2">Scan to verify</p>
-                  </div>
                 </div>
               </div>
             ) : (
@@ -724,36 +740,16 @@ export default function App() {
                  <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                    <h2 className="text-lg font-bold text-gray-800">Sales Records</h2>
                    
-                   {/* DATE FILTERS */}
                    <div className="flex items-center space-x-2 bg-white p-1 rounded-lg border border-gray-200">
-                     <select 
-                       value={filterType} 
-                       onChange={(e) => setFilterType(e.target.value)}
-                       className="p-2 text-sm bg-transparent outline-none font-medium text-gray-700"
-                     >
+                     <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="p-2 text-sm bg-transparent outline-none font-medium text-gray-700">
                        <option value="daily">Daily</option>
                        <option value="monthly">Monthly</option>
                        <option value="yearly">Yearly</option>
                        <option value="all">All Time</option>
                      </select>
-                     
-                     {filterType === 'daily' && (
-                       <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="p-2 text-sm outline-none bg-gray-50 rounded" />
-                     )}
-                     {filterType === 'monthly' && (
-                       <input type="month" value={filterDate.slice(0, 7)} onChange={(e) => setFilterDate(e.target.value)} className="p-2 text-sm outline-none bg-gray-50 rounded" />
-                     )}
-                     {filterType === 'yearly' && (
-                        <select 
-                          value={filterDate.slice(0, 4)} 
-                          onChange={(e) => setFilterDate(`${e.target.value}-01-01`)}
-                          className="p-2 text-sm outline-none bg-gray-50 rounded"
-                        >
-                          {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (
-                            <option key={year} value={year}>{year}</option>
-                          ))}
-                        </select>
-                     )}
+                     {filterType === 'daily' && <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="p-2 text-sm outline-none bg-gray-50 rounded" />}
+                     {filterType === 'monthly' && <input type="month" value={filterDate.slice(0, 7)} onChange={(e) => setFilterDate(e.target.value)} className="p-2 text-sm outline-none bg-gray-50 rounded" />}
+                     {filterType === 'yearly' && <select value={filterDate.slice(0, 4)} onChange={(e) => setFilterDate(`${e.target.value}-01-01`)} className="p-2 text-sm outline-none bg-gray-50 rounded">{Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(year => (<option key={year} value={year}>{year}</option>))}</select>}
                    </div>
 
                    <div className="relative">
@@ -762,7 +758,6 @@ export default function App() {
                    </div>
                  </div>
 
-                 {/* SUMMARY CARD */}
                  <div className="grid grid-cols-2 gap-4">
                     <div className="bg-blue-600 rounded-xl p-4 text-white shadow-lg">
                       <p className="text-blue-100 text-sm mb-1 uppercase tracking-wider">Revenue ({filterType})</p>
@@ -789,6 +784,8 @@ export default function App() {
                            <td className="px-6 py-4 text-center flex justify-center space-x-2">
                              <button onClick={() => setViewOrder(sale)} className="p-2 hover:bg-blue-50 text-blue-600 rounded-full"><FileText size={18} /></button>
                              <button onClick={() => openEditSale(sale)} className="p-2 hover:bg-orange-50 text-orange-500 rounded-full"><Edit size={18} /></button>
+                             {/* FIX 3: Delete Button added here */}
+                             <button onClick={() => handleDeleteSale(sale.id)} className="p-2 hover:bg-red-50 text-red-500 rounded-full" title="Delete Sale"><Trash2 size={18} /></button>
                            </td>
                          </tr>
                        ))}
@@ -827,15 +824,10 @@ export default function App() {
              <Input label="Price (BDT)" type="number" className="flex-1" value={currentItem.price} onChange={e => setCurrentItem({...currentItem, price: e.target.value})} />
              <Input label="Stock Qty" type="number" className="flex-1" value={currentItem.stock} onChange={e => setCurrentItem({...currentItem, stock: e.target.value})} />
           </div>
-          {/* UPDATED: Unit Input */}
           <div className="flex space-x-4">
              <div className="flex-1">
                <label className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Unit</label>
-               <select 
-                 value={currentItem.unit} 
-                 onChange={e => setCurrentItem({...currentItem, unit: e.target.value})}
-                 className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-               >
+               <select value={currentItem.unit} onChange={e => setCurrentItem({...currentItem, unit: e.target.value})} className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20">
                  <option value="pcs">Pieces (pcs)</option>
                  <option value="kg">Kilogram (kg)</option>
                  <option value="gm">Gram (gm)</option>
