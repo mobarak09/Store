@@ -820,21 +820,29 @@ export default function App() {
                 </div>
                 {/* RECEIPT CONTENT AREA (A6 Size optimized) */}
                 <div className="p-8 md:p-12 overflow-y-auto flex-1" id="receipt-area">
-                  <div className="flex justify-between items-start border-b-2 border-gray-800 pb-8 mb-8">
-                    <div>
-                      <h1 className="text-3xl font-bold text-gray-900 mb-2">INVOICE</h1>
-                      <p className="text-gray-900 font-bold text-lg">{viewOrder.customerName}</p>
-                      {viewOrder.customerMobile && viewOrder.customerMobile !== "N/A" && (
-                        <p className="text-gray-500 text-sm mt-1">Mobile: {viewOrder.customerMobile}</p>
-                      )}
+                  <div className="border-b-2 border-gray-800 pb-8 mb-8">
+                    {/* NEW: Business Header */}
+                    <div className="text-center mb-6">
+                      <h1 className="text-2xl font-bold text-gray-900 uppercase tracking-wider mb-1">Hossain Traders</h1>
+                      <p className="text-xs text-gray-600 leading-tight">Poroshovar Gate, Anantapur, Eklashpur, Begumganj, Noakhali-3801</p>
+                      <p className="text-xs font-semibold text-gray-700 mt-1">Propietor: Md Amir Hossain, Mobile: 01766287043</p>
                     </div>
-                    <div className="text-right flex flex-col items-end">
-                      <h2 className="text-xl font-bold text-gray-800 mb-2">{viewOrder.orderNumber}</h2>
-                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${viewOrder.orderNumber}`} alt="QR" className="w-20 h-20 mb-2 border border-gray-200 p-1 rounded" />
-                      <p className="text-gray-500">
-                        {viewOrder.dateStr} 
-                        {viewOrder.timeStr && <span className="block text-sm text-gray-400 mt-1">{viewOrder.timeStr}</span>}
-                      </p>
+
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h2 className="text-xl font-bold text-gray-900 mb-2">INVOICE</h2>
+                        <p className="text-gray-900 font-bold">{viewOrder.customerName}</p>
+                        {viewOrder.customerMobile && viewOrder.customerMobile !== "N/A" && (
+                          <p className="text-gray-500 text-sm mt-1">Mobile: {viewOrder.customerMobile}</p>
+                        )}
+                      </div>
+                      <div className="text-right flex flex-col items-end">
+                        <h3 className="text-lg font-bold text-gray-800 mb-1">{viewOrder.orderNumber}</h3>
+                        <p className="text-gray-500 text-sm">
+                          {viewOrder.dateStr} 
+                          {viewOrder.timeStr && <span className="block text-xs text-gray-400 mt-1">{viewOrder.timeStr}</span>}
+                        </p>
+                      </div>
                     </div>
                   </div>
                   <table className="w-full mb-8">
