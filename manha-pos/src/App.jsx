@@ -209,10 +209,10 @@ export default function App() {
     }
 
     const initAuth = async () => {
-      setLoadingStatus("Connecting to Database...");
+      setLoadingStatus("Connecting to Cloud...");
       try {
         await signInAnonymously(auth);
-        setLoadingStatus("Verifying User...");
+        setLoadingStatus("Syncing Data...");
       } catch (error) {
         console.error("Auth Error", error);
         setAuthError(error.message);
@@ -230,18 +230,20 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- Data Listeners ---
+  // --- Data Listeners (PERSISTENCE LOGIC CHANGED TO PUBLIC) ---
   useEffect(() => {
     if (!user || !db) return;
 
+    // IMPORTANT: Changed path from 'users/{uid}' to 'public/data'.
+    // This ensures data persists even if the user ID changes (cache clear).
     try {
-      const itemsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'items');
+      const itemsRef = collection(db, 'artifacts', appId, 'public', 'data', 'items');
       const unsubItems = onSnapshot(itemsRef, (snapshot) => {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setItems(data.sort((a, b) => a.name.localeCompare(b.name)));
       });
 
-      const salesRef = collection(db, 'artifacts', appId, 'users', user.uid, 'sales');
+      const salesRef = collection(db, 'artifacts', appId, 'public', 'data', 'sales');
       const unsubSales = onSnapshot(salesRef, (snapshot) => {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setSales(data.sort((a, b) => {
@@ -327,10 +329,11 @@ export default function App() {
         updatedAt: serverTimestamp()
       };
 
+      // Using public path
       if (currentItem.id) {
-        await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'items', currentItem.id), itemData);
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', currentItem.id), itemData);
       } else {
-        await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'items'), {
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'items'), {
           ...itemData,
           createdAt: serverTimestamp()
         });
@@ -346,7 +349,7 @@ export default function App() {
     if (isLocked) return alert("Please unlock app first.");
     if (!confirm("Are you sure?")) return;
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'items', id));
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', id));
     } catch (e) {
       console.error("Error deleting item:", e);
       alert(e.message);
@@ -357,7 +360,7 @@ export default function App() {
     if (isLocked) return alert("Please unlock app first.");
     if (!confirm("Delete this order record permanently?")) return;
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'sales', id));
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sales', id));
       if (viewOrder && viewOrder.id === id) setViewOrder(null);
     } catch (e) {
       console.error("Error deleting sale:", e);
@@ -429,10 +432,12 @@ export default function App() {
         customerMobile: customerMobile.trim() || "N/A"
       };
 
-      const saleRef = await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'sales'), saleData);
+      // 1. Save Sale (Public Path)
+      const saleRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'sales'), saleData);
 
+      // 2. Update Inventory (Public Path)
       for (const item of cart) {
-        const itemRef = doc(db, 'artifacts', appId, 'users', user.uid, 'items', item.id);
+        const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', item.id);
         const currentStock = items.find(i => i.id === item.id)?.stock || 0;
         await updateDoc(itemRef, {
           stock: Math.max(0, currentStock - item.qty)
@@ -486,7 +491,7 @@ export default function App() {
       const newTotal = currentSaleEdit.items.reduce((acc, item) => acc + (item.price * item.qty), 0);
       const newItemCount = currentSaleEdit.items.reduce((acc, item) => acc + item.qty, 0);
 
-      await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'sales', currentSaleEdit.id), {
+      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'sales', currentSaleEdit.id), {
         orderNumber: currentSaleEdit.orderNumber,
         dateStr: currentSaleEdit.dateStr,
         customerName: currentSaleEdit.customerName,
@@ -755,6 +760,7 @@ export default function App() {
                     </div>
                     <div className="text-right flex flex-col items-end">
                       <h2 className="text-xl font-bold text-gray-800 mb-2">{viewOrder.orderNumber}</h2>
+                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${viewOrder.orderNumber}`} alt="QR" className="w-20 h-20 mb-2 border border-gray-200 p-1 rounded" />
                       <p className="text-gray-500">
                         {viewOrder.dateStr} 
                         {viewOrder.timeStr && <span className="block text-sm text-gray-400 mt-1">{viewOrder.timeStr}</span>}
