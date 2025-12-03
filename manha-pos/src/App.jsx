@@ -27,7 +27,8 @@ import {
   Wifi,
   WifiOff,
   User,
-  Phone
+  Phone,
+  LogOut
 } from 'lucide-react';
 
 // Firebase Imports
@@ -172,7 +173,15 @@ export default function App() {
   const [authError, setAuthError] = useState(initError);
   const [loadingStatus, setLoadingStatus] = useState("Initializing System...");
   
-  const [activeTab, setActiveTab] = useState('inventory');
+  // Login State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loginId, setLoginId] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+
+  // Change default tab to 'pos' as requested
+  const [activeTab, setActiveTab] = useState('pos');
+  
   const [items, setItems] = useState([]);
   const [sales, setSales] = useState([]);
   const [cart, setCart] = useState([]);
@@ -230,12 +239,10 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- Data Listeners (PERSISTENCE LOGIC CHANGED TO PUBLIC) ---
+  // --- Data Listeners ---
   useEffect(() => {
     if (!user || !db) return;
 
-    // IMPORTANT: Changed path from 'users/{uid}' to 'public/data'.
-    // This ensures data persists even if the user ID changes (cache clear).
     try {
       const itemsRef = collection(db, 'artifacts', appId, 'public', 'data', 'items');
       const unsubItems = onSnapshot(itemsRef, (snapshot) => {
@@ -263,6 +270,16 @@ export default function App() {
   }, [user]);
 
   // --- Methods ---
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (loginId === 'admin' && loginPassword === '1234') {
+      setIsAuthenticated(true);
+      setLoginError("");
+    } else {
+      setLoginError("Invalid User ID or Password");
+    }
+  };
+
   const handleTabChange = (tab) => {
     if (isLocked && (tab === 'sales' || tab === 'pos' || tab === 'settings')) {
       setTargetTab(tab);
@@ -294,7 +311,7 @@ export default function App() {
       setShowPinModal(true);
     } else {
       setIsLocked(true);
-      setActiveTab('inventory');
+      setActiveTab('pos'); // Changed default to POS
     }
   };
 
@@ -329,7 +346,6 @@ export default function App() {
         updatedAt: serverTimestamp()
       };
 
-      // Using public path
       if (currentItem.id) {
         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'items', currentItem.id), itemData);
       } else {
@@ -432,10 +448,8 @@ export default function App() {
         customerMobile: customerMobile.trim() || "N/A"
       };
 
-      // 1. Save Sale (Public Path)
       const saleRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'sales'), saleData);
 
-      // 2. Update Inventory (Public Path)
       for (const item of cart) {
         const itemRef = doc(db, 'artifacts', appId, 'public', 'data', 'items', item.id);
         const currentStock = items.find(i => i.id === item.id)?.stock || 0;
@@ -534,7 +548,6 @@ export default function App() {
 
   const filteredSales = useMemo(() => {
     return sales.filter(s => {
-      // Updated search logic to include mobile number
       const matchesSearch = (s.orderNumber && s.orderNumber.toLowerCase().includes(salesSearch.toLowerCase())) ||
                             (s.customerName && s.customerName.toLowerCase().includes(salesSearch.toLowerCase())) ||
                             (s.customerMobile && s.customerMobile.toLowerCase().includes(salesSearch.toLowerCase()));
@@ -592,22 +605,76 @@ export default function App() {
   if (!user) return (
     <div className="flex items-center justify-center h-screen bg-gray-50 flex-col">
       <Loader2 size={48} className="animate-spin text-blue-600 mb-4" />
-      <h2 className="text-xl font-bold text-gray-800 mb-2">Manha POS</h2>
+      <h2 className="text-xl font-bold text-gray-800 mb-2">Hossain Traders POS</h2>
       <p className="text-gray-500 font-medium animate-pulse">{loadingStatus}</p>
     </div>
   );
+
+  // --- LOGIN SCREEN ---
+  if (!isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-100 font-sans">
+        <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md">
+          <div className="flex justify-center mb-6">
+             <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white font-bold text-2xl shadow-lg">HT</div>
+          </div>
+          <h2 className="text-2xl font-bold text-center text-gray-800 mb-2">Hossain Traders</h2>
+          <p className="text-center text-gray-500 mb-8">Sign in to your POS Dashboard</p>
+          
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">User ID</label>
+              <input 
+                type="text" 
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                placeholder="Enter User ID"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <input 
+                type="password" 
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                placeholder="Enter Password"
+              />
+            </div>
+            
+            {loginError && (
+              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm text-center border border-red-100 animate-pulse">
+                {loginError}
+              </div>
+            )}
+
+            <button 
+              type="submit" 
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+            >
+              Login
+            </button>
+          </form>
+          <p className="text-center text-xs text-gray-400 mt-6">Authorized personnel only.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col p-4 print:hidden">
         <div className="flex items-center mb-8 px-2">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold mr-3">M</div>
-          <h1 className="text-xl font-bold tracking-tight text-gray-800">Manha</h1>
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold mr-3">H</div>
+          <h1 className="text-xl font-bold tracking-tight text-gray-800">Hossain Traders</h1>
         </div>
         <nav className="flex-1">
-          <SidebarItem id="inventory" icon={Package} label="Inventory" activeTab={activeTab} isLocked={isLocked} onClick={handleTabChange} />
+          {/* REORDERED TABS HERE */}
           <SidebarItem id="pos" icon={ShoppingCart} label="Point of Sale" activeTab={activeTab} isLocked={isLocked} onClick={handleTabChange} />
           <SidebarItem id="sales" icon={TrendingUp} label="Sales History" activeTab={activeTab} isLocked={isLocked} onClick={handleTabChange} />
+          <SidebarItem id="inventory" icon={Package} label="Inventory" activeTab={activeTab} isLocked={isLocked} onClick={handleTabChange} />
           <SidebarItem id="settings" icon={Settings} label="Settings" activeTab={activeTab} isLocked={isLocked} onClick={handleTabChange} />
         </nav>
         <div className="mt-auto pt-4 border-t border-gray-100 space-y-2">
@@ -617,14 +684,17 @@ export default function App() {
            <button onClick={toggleGlobalLock} className={`w-full flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors ${isLocked ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
              {isLocked ? <><Lock size={16} className="mr-2"/> App Locked</> : <><Unlock size={16} className="mr-2"/> App Unlocked</>}
            </button>
+           <button onClick={() => setIsAuthenticated(false)} className="w-full flex items-center justify-center px-4 py-2 rounded-lg font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
+             <LogOut size={16} className="mr-2"/> Logout
+           </button>
         </div>
       </aside>
 
       <main className="flex-1 overflow-y-auto print:overflow-visible h-full">
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 print:hidden sticky top-0 z-10">
-          <h2 className="text-xl font-semibold capitalize text-gray-800">{activeTab}</h2>
+          <h2 className="text-xl font-semibold capitalize text-gray-800">{activeTab === 'pos' ? 'Point of Sale' : activeTab}</h2>
           <div className="flex items-center space-x-4">
-            {activeTab === 'inventory' && (
+            {(activeTab === 'inventory' || activeTab === 'pos') && (
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
                 <input type="text" placeholder="Search products..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 bg-gray-100 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-64" />
@@ -786,8 +856,8 @@ export default function App() {
                     <div className="flex justify-between text-xl font-bold text-gray-900 w-64"><span>Grand Total</span><span>৳{viewOrder.total.toFixed(2)}</span></div>
                   </div>
                   <div className="mt-8 text-center border-t pt-8">
-                     <p className="font-bold text-lg mb-2">Thank you for shopping with Manha!</p>
-                     <p className="text-xs text-gray-400 mb-4">Generated by Manha POS</p>
+                     <p className="font-bold text-lg mb-2">Thank you for shopping with Hossain Traders!</p>
+                     <p className="text-xs text-gray-400 mb-4">Generated by Hossain Traders POS</p>
                      <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${viewOrder.orderNumber}`} alt="QR" className="mx-auto w-24 h-24" />
                   </div>
                 </div>
