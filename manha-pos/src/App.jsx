@@ -19,7 +19,8 @@ import {
   Unlock,
   Settings,
   Download,
-  Save
+  Save,
+  ServerCrash
 } from 'lucide-react';
 
 // Firebase Imports
@@ -41,15 +42,14 @@ import {
   serverTimestamp 
 } from "firebase/firestore";
 
-// --- Helper: Safely access Env Vars (Prevents crash on older build targets) ---
+// --- Helper: Safely access Env Vars ---
 const getEnv = (key, fallback) => {
   try {
-    // Check if import.meta.env exists before accessing it
     if (typeof import.meta !== 'undefined' && import.meta.env) {
       return import.meta.env[key] || fallback;
     }
   } catch (e) {
-    console.warn("Environment variable access failed, using fallback.");
+    console.warn("Environment variable access failed.");
   }
   return fallback;
 };
@@ -64,24 +64,29 @@ const firebaseConfig = {
   appId: getEnv("VITE_FIREBASE_APP_ID", "1:00000000:web:00000000")
 };
 
-// Initialize Firebase
+// --- Static App ID ---
+const appId = 'manha-pos-v1';
+
+// --- Global Init ---
 let app, auth, db;
 let initError = null;
 
-try {
-  app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
-} catch (e) {
-  initError = e.message;
-  console.error("Firebase Init Error:", e);
+// Validation Check
+const isConfigConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY_HERE" && 
+                           !firebaseConfig.authDomain.includes("your-project");
+
+if (isConfigConfigured) {
+  try {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  } catch (e) {
+    initError = e.message;
+    console.error("Firebase Init Error:", e);
+  }
 }
 
-// Static App ID for data separation
-const appId = 'manha-pos-v1';
-
 // --- Utility Components ---
-
 const Button = ({ children, onClick, variant = 'primary', className = '', icon: Icon, disabled = false }) => {
   const baseStyle = "flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1";
   const variants = {
@@ -94,11 +99,7 @@ const Button = ({ children, onClick, variant = 'primary', className = '', icon: 
   };
 
   return (
-    <button 
-      onClick={onClick} 
-      disabled={disabled}
-      className={`${baseStyle} ${variants[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}
-    >
+    <button onClick={onClick} disabled={disabled} className={`${baseStyle} ${variants[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}>
       {Icon && <Icon size={18} className="mr-2" />}
       {children}
     </button>
@@ -106,21 +107,13 @@ const Button = ({ children, onClick, variant = 'primary', className = '', icon: 
 };
 
 const Card = ({ children, className = '' }) => (
-  <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${className}`}>
-    {children}
-  </div>
+  <div className={`bg-white rounded-xl shadow-sm border border-gray-100 ${className}`}>{children}</div>
 );
 
 const Input = ({ label, value, onChange, placeholder, type = "text", className = "" }) => (
   <div className={`flex flex-col ${className}`}>
     {label && <label className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">{label}</label>}
-    <input
-      type={type}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-    />
+    <input type={type} value={value} onChange={onChange} placeholder={placeholder} className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors" />
   </div>
 );
 
@@ -131,13 +124,9 @@ const Modal = ({ isOpen, onClose, title, children }) => {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
         <div className="flex justify-between items-center p-4 border-b border-gray-100">
           <h3 className="font-bold text-lg text-gray-800">{title}</h3>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 transition-colors">
-            <X size={20} />
-          </button>
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded-full text-gray-500 transition-colors"><X size={20} /></button>
         </div>
-        <div className="p-4 max-h-[80vh] overflow-y-auto">
-          {children}
-        </div>
+        <div className="p-4 max-h-[80vh] overflow-y-auto">{children}</div>
       </div>
     </div>
   );
@@ -147,42 +136,50 @@ const Modal = ({ isOpen, onClose, title, children }) => {
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [authError, setAuthError] = useState(initError); // Track errors
-  const [activeTab, setActiveTab] = useState('inventory'); // inventory, pos, sales, settings
+  const [authError, setAuthError] = useState(initError);
+  const [loadingStatus, setLoadingStatus] = useState("Initializing...");
+  
+  // App Logic States
+  const [activeTab, setActiveTab] = useState('inventory');
   const [items, setItems] = useState([]);
   const [sales, setSales] = useState([]);
   const [cart, setCart] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   
-  // States for Security
   const [isLocked, setIsLocked] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [showPinModal, setShowPinModal] = useState(false);
   const [targetTab, setTargetTab] = useState(null);
-  const [securityPin, setSecurityPin] = useState("1234"); // Default PIN
+  const [securityPin, setSecurityPin] = useState("1234");
 
-  // States for Editing
   const [viewOrder, setViewOrder] = useState(null); 
   const [salesSearch, setSalesSearch] = useState("");
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [isSaleEditModalOpen, setIsSaleEditModalOpen] = useState(false);
   
-  // "Item" state used for both Adding and Editing
   const [currentItem, setCurrentItem] = useState({ id: null, name: '', price: '', stock: '', category: '', description: '', imageUrl: '' });
-  
-  // "Sale" state for Editing
   const [currentSaleEdit, setCurrentSaleEdit] = useState({ id: null, orderNumber: '', dateStr: '', customerName: '', items: [] });
 
   // --- Auth & Data Initialization ---
   useEffect(() => {
+    // 1. Check Configuration First
+    if (!isConfigConfigured) {
+      setAuthError("Environment Variables Missing");
+      setLoadingStatus("Failed");
+      return;
+    }
+
     if (initError) return;
 
     const initAuth = async () => {
+      setLoadingStatus("Connecting to Database...");
       try {
         await signInAnonymously(auth);
+        setLoadingStatus("Verifying User...");
       } catch (error) {
         console.error("Auth Error", error);
         setAuthError(error.message);
+        setLoadingStatus("Connection Failed");
       }
     };
     initAuth();
@@ -190,7 +187,7 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       if (u) {
         setUser(u);
-        setAuthError(null); // Clear error on success
+        setAuthError(null);
       }
     });
     return () => unsubscribe();
@@ -200,18 +197,15 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
 
-    // Items Listener
     const itemsRef = collection(db, 'artifacts', appId, 'users', user.uid, 'items');
     const unsubItems = onSnapshot(itemsRef, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setItems(data.sort((a, b) => a.name.localeCompare(b.name)));
     }, (err) => console.error("Items fetch error:", err));
 
-    // Sales Listener
     const salesRef = collection(db, 'artifacts', appId, 'users', user.uid, 'sales');
     const unsubSales = onSnapshot(salesRef, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // Sort in memory: newest first. Handle null createdAt (local write) as newest (MAX_SAFE_INTEGER)
       setSales(data.sort((a, b) => {
         const dateA = a.createdAt ? a.createdAt.seconds : Number.MAX_SAFE_INTEGER;
         const dateB = b.createdAt ? b.createdAt.seconds : Number.MAX_SAFE_INTEGER;
@@ -225,7 +219,7 @@ export default function App() {
     };
   }, [user]);
 
-  // --- Logic: Security ---
+  // --- Logic Implementations ---
   const handleTabChange = (tab) => {
     if (isLocked && (tab === 'sales' || tab === 'pos' || tab === 'settings')) {
       setTargetTab(tab);
@@ -243,7 +237,7 @@ export default function App() {
         setActiveTab(targetTab);
         setTargetTab(null);
       } else {
-        setIsLocked(false); // Unlocking globally if triggered from lock button
+        setIsLocked(false);
       }
     } else {
       alert("Incorrect PIN");
@@ -253,17 +247,14 @@ export default function App() {
 
   const toggleGlobalLock = () => {
     if (isLocked) {
-      // Trying to unlock
       setTargetTab(null);
       setShowPinModal(true);
     } else {
-      // Locking
       setIsLocked(true);
-      setActiveTab('inventory'); // Go to safe tab
+      setActiveTab('inventory');
     }
   };
 
-  // --- Logic: Inventory (Add & Edit) ---
   const openAddItem = () => {
     setCurrentItem({ id: null, name: '', price: '', stock: '', category: '', description: '', imageUrl: '' });
     setIsItemModalOpen(true);
@@ -288,10 +279,8 @@ export default function App() {
       };
 
       if (currentItem.id) {
-        // Update existing
         await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'items', currentItem.id), itemData);
       } else {
-        // Add new
         await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'items'), {
           ...itemData,
           createdAt: serverTimestamp()
@@ -316,7 +305,6 @@ export default function App() {
     }
   };
 
-  // --- Logic: POS (Point of Sale) ---
   const addToCart = (item) => {
     if (item.stock <= 0) return;
     setCart(prev => {
@@ -376,7 +364,6 @@ export default function App() {
         itemCount: cart.reduce((acc, i) => acc + i.qty, 0),
         createdAt: serverTimestamp(),
         dateStr: now.toLocaleDateString(),
-        // 12-hour format
         timeStr: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }),
         orderNumber: orderNumber,
         customerName: "Walk-in Customer"
@@ -402,19 +389,17 @@ export default function App() {
     }
   };
 
-  // --- Logic: Sales Editing ---
   const openEditSale = (sale) => {
     setCurrentSaleEdit({
       id: sale.id,
       orderNumber: sale.orderNumber,
       dateStr: sale.dateStr,
       customerName: sale.customerName || '',
-      items: JSON.parse(JSON.stringify(sale.items || [])) // Deep copy items
+      items: JSON.parse(JSON.stringify(sale.items || []))
     });
     setIsSaleEditModalOpen(true);
   };
 
-  // Update specific item quantity in the edit modal
   const updateSaleEditItemQty = (index, newVal) => {
     const qty = parseInt(newVal) || 0;
     setCurrentSaleEdit(prev => {
@@ -424,7 +409,6 @@ export default function App() {
     });
   };
 
-  // Remove item from sale in edit modal
   const removeSaleEditItem = (index) => {
     setCurrentSaleEdit(prev => {
       const newItems = prev.items.filter((_, i) => i !== index);
@@ -435,7 +419,6 @@ export default function App() {
   const handleUpdateSale = async () => {
     if (!user || !currentSaleEdit.id) return;
     try {
-      // Recalculate totals
       const newTotal = currentSaleEdit.items.reduce((acc, item) => acc + (item.price * item.qty), 0);
       const newItemCount = currentSaleEdit.items.reduce((acc, item) => acc + item.qty, 0);
 
@@ -449,7 +432,6 @@ export default function App() {
       });
       setIsSaleEditModalOpen(false);
       
-      // Update local view if we are looking at this order
       if (viewOrder && viewOrder.id === currentSaleEdit.id) {
         setViewOrder(prev => ({ 
           ...prev, 
@@ -463,7 +445,6 @@ export default function App() {
     }
   };
 
-  // --- Logic: Data Backup ---
   const handleBackupData = () => {
     const data = {
       items: items,
@@ -481,7 +462,6 @@ export default function App() {
     alert("Backup downloaded! You can now upload this file to your Google Drive manually.");
   };
 
-  // --- Filtering ---
   const filteredItems = useMemo(() => {
     return items.filter(i => i.name.toLowerCase().includes(searchTerm.toLowerCase()));
   }, [items, searchTerm]);
@@ -494,64 +474,83 @@ export default function App() {
     );
   }, [sales, salesSearch]);
 
-  // --- Components ---
-  const SidebarItem = ({ id, icon: Icon, label }) => (
-    <button
-      onClick={() => handleTabChange(id)}
-      className={`flex items-center w-full p-3 mb-2 rounded-lg transition-colors ${
-        activeTab === id 
-          ? 'bg-blue-600 text-white shadow-md' 
-          : 'text-gray-600 hover:bg-gray-100'
-      }`}
-    >
-      <Icon size={20} className="mr-3" />
-      <span className="font-medium">{label}</span>
-      {isLocked && (id === 'sales' || id === 'pos' || id === 'settings') && <Lock size={14} className="ml-auto opacity-50"/>}
-    </button>
-  );
+  // --- RENDERS ---
 
-  if (authError) {
+  // 1. Missing Configuration Error Screen
+  if (!isConfigConfigured) {
     return (
-      <div className="flex items-center justify-center h-screen bg-red-50 text-red-700 p-8 text-center flex-col">
-        <AlertCircle size={48} className="mb-4" />
-        <h1 className="text-2xl font-bold mb-2">Connection Error</h1>
-        <p className="mb-4">{authError}</p>
-        <div className="bg-white p-4 rounded shadow text-sm text-gray-700 max-w-md">
-          <strong>Troubleshooting:</strong>
-          <ul className="list-disc text-left pl-6 mt-2 space-y-1">
-            <li>Ensure <strong>Anonymous Auth</strong> is enabled in Firebase Console.</li>
-            <li>Verify API Keys in <strong>Vercel Environment Variables</strong>.</li>
-            <li>If seeing "api-key-not-valid", check <code>VITE_FIREBASE_API_KEY</code>.</li>
-          </ul>
+      <div className="flex items-center justify-center h-screen bg-slate-900 text-white p-8 flex-col">
+        <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl max-w-lg w-full border border-slate-700">
+          <div className="flex items-center justify-center mb-6 text-red-500">
+            <ServerCrash size={64} />
+          </div>
+          <h1 className="text-2xl font-bold mb-4 text-center">Setup Required</h1>
+          <p className="mb-6 text-slate-300 text-center">
+            The application cannot connect to the database because the API Keys are missing or using placeholders.
+          </p>
+          <div className="bg-slate-950 p-4 rounded-lg text-sm font-mono text-blue-300 mb-6 border border-slate-800">
+            <p>VITE_FIREBASE_API_KEY is missing.</p>
+          </div>
+          <div className="text-sm text-slate-400">
+            <strong>How to fix on Vercel:</strong>
+            <ol className="list-decimal pl-5 mt-2 space-y-1">
+              <li>Go to Vercel Dashboard {'>'} Project {'>'} Settings.</li>
+              <li>Click <strong>Environment Variables</strong>.</li>
+              <li>Add the keys from your Firebase Console.</li>
+              <li><strong>Redeploy</strong> your application.</li>
+            </ol>
+          </div>
         </div>
       </div>
     );
   }
 
+  // 2. Authentication/Connection Error Screen
+  if (authError) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-red-50 text-red-900 p-8 flex-col">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
+          <AlertCircle size={48} className="mx-auto mb-4 text-red-500" />
+          <h1 className="text-xl font-bold mb-2">Connection Failed</h1>
+          <p className="text-red-600 mb-4">{authError}</p>
+          <p className="text-sm text-gray-500">
+            Please check your internet connection and ensure "Anonymous Authentication" is enabled in your Firebase Console.
+          </p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="mt-6 bg-red-600 text-white px-6 py-2 rounded-full hover:bg-red-700 transition-colors w-full"
+          >
+            Retry Connection
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. Loading Screen
   if (!user) return (
     <div className="flex items-center justify-center h-screen bg-gray-50 flex-col">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-      <p className="text-gray-500 font-medium">Loading Manha POS...</p>
+      <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mb-6"></div>
+      <h2 className="text-xl font-bold text-gray-800 mb-2">Manha POS</h2>
+      <p className="text-gray-500 font-medium animate-pulse">{loadingStatus}</p>
     </div>
   );
 
+  // 4. Main App UI
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
-      
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-gray-200 flex flex-col p-4 print:hidden">
         <div className="flex items-center mb-8 px-2">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold mr-3">M</div>
           <h1 className="text-xl font-bold tracking-tight text-gray-800">Manha</h1>
         </div>
-
         <nav className="flex-1">
           <SidebarItem id="inventory" icon={Package} label="Inventory" />
           <SidebarItem id="pos" icon={ShoppingCart} label="Point of Sale" />
           <SidebarItem id="sales" icon={TrendingUp} label="Sales History" />
           <SidebarItem id="settings" icon={Settings} label="Settings" />
         </nav>
-
         <div className="mt-auto pt-4 border-t border-gray-100 space-y-2">
            <button 
              onClick={toggleGlobalLock}
@@ -567,7 +566,6 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto print:overflow-visible h-full">
-        
         {/* Top Bar */}
         <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 print:hidden sticky top-0 z-10">
           <h2 className="text-xl font-semibold capitalize text-gray-800">{activeTab}</h2>
@@ -584,7 +582,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* --- TAB: INVENTORY --- */}
+        {/* --- TABS --- */}
         {activeTab === 'inventory' && (
           <div className="p-8">
             <div className="flex justify-between items-center mb-6">
@@ -596,7 +594,6 @@ export default function App() {
               </div>
               <Button onClick={openAddItem} icon={Plus}>Add Item</Button>
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
               {filteredItems.map(item => (
                 <Card key={item.id} className="overflow-hidden hover:shadow-md transition-shadow group relative">
@@ -607,12 +604,8 @@ export default function App() {
                       <div className="w-full h-full flex items-center justify-center text-gray-300"><ImageIcon size={48} /></div>
                     )}
                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-2">
-                      <button onClick={() => openEditItem(item)} className="bg-white p-2 rounded-full shadow-md text-blue-500 hover:bg-blue-50">
-                        <Edit size={16} />
-                      </button>
-                      <button onClick={() => handleDeleteItem(item.id)} className="bg-white p-2 rounded-full shadow-md text-red-500 hover:bg-red-50">
-                        <Trash2 size={16} />
-                      </button>
+                      <button onClick={() => openEditItem(item)} className="bg-white p-2 rounded-full shadow-md text-blue-500 hover:bg-blue-50"><Edit size={16} /></button>
+                      <button onClick={() => handleDeleteItem(item.id)} className="bg-white p-2 rounded-full shadow-md text-red-500 hover:bg-red-50"><Trash2 size={16} /></button>
                     </div>
                   </div>
                   <div className="p-4">
@@ -622,9 +615,7 @@ export default function App() {
                     </div>
                     <p className="text-sm text-gray-500 mb-4 line-clamp-2 min-h-[2.5rem]">{item.description || 'No description provided.'}</p>
                     <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${item.stock < 5 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                        {item.stock} in stock
-                      </span>
+                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${item.stock < 5 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{item.stock} in stock</span>
                       <span className="text-xs text-gray-400 capitalize">{item.category}</span>
                     </div>
                   </div>
@@ -634,7 +625,6 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB: POS --- */}
         {activeTab === 'pos' && (
           <div className="flex h-[calc(100vh-4rem)]">
             <div className="flex-1 p-6 overflow-y-auto border-r border-gray-200">
@@ -682,7 +672,6 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB: SALES HISTORY --- */}
         {activeTab === 'sales' && (
           <div className="p-8 max-w-5xl mx-auto h-full">
             {viewOrder ? (
@@ -701,7 +690,6 @@ export default function App() {
                       <h2 className="text-xl font-bold text-gray-800">{viewOrder.orderNumber}</h2>
                       <p className="text-gray-500">
                         {viewOrder.dateStr} 
-                        {/* Display Time if available, fallback to created timestamp logic if needed */}
                         {viewOrder.timeStr && <span className="block text-sm text-gray-400 mt-1">{viewOrder.timeStr}</span>}
                         {!viewOrder.timeStr && viewOrder.createdAt && <span className="block text-sm text-gray-400 mt-1">{new Date(viewOrder.createdAt.seconds * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>}
                       </p>
@@ -763,11 +751,9 @@ export default function App() {
           </div>
         )}
 
-        {/* --- TAB: SETTINGS --- */}
         {activeTab === 'settings' && (
           <div className="p-8 max-w-2xl mx-auto">
             <h2 className="text-2xl font-bold mb-6">Settings</h2>
-            
             <div className="space-y-6">
               <Card className="p-6">
                 <h3 className="font-bold text-lg mb-2 flex items-center"><Lock className="mr-2" size={20}/> Security</h3>
@@ -777,26 +763,17 @@ export default function App() {
                   <Button variant="success" onClick={() => alert("PIN Updated!")}>Update PIN</Button>
                 </div>
               </Card>
-
               <Card className="p-6">
                 <h3 className="font-bold text-lg mb-2 flex items-center"><Save className="mr-2" size={20}/> Data Backup</h3>
-                <p className="text-sm text-gray-500 mb-4">Download your entire database as a file. You can upload this file to Google Drive to keep a safe copy of your records.</p>
+                <p className="text-sm text-gray-500 mb-4">Download your entire database as a file.</p>
                 <Button variant="secondary" onClick={handleBackupData} icon={Download} className="w-full">Download Database Backup</Button>
               </Card>
-
-              <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                <h4 className="font-bold text-blue-800 mb-1">About Deployment</h4>
-                <p className="text-sm text-blue-600">This app is currently running in a preview environment. To make it "ready to use" for your business permanently, you would typically host this code on a platform like Vercel, Netlify, or Firebase Hosting.</p>
-              </div>
             </div>
           </div>
         )}
-
       </main>
 
       {/* --- MODALS --- */}
-      
-      {/* ADD/EDIT ITEM MODAL */}
       <Modal isOpen={isItemModalOpen} onClose={() => setIsItemModalOpen(false)} title={currentItem.id ? "Edit Item" : "Add New Item"}>
         <div className="space-y-4">
           <Input label="Product Name" value={currentItem.name} onChange={e => setCurrentItem({...currentItem, name: e.target.value})} />
@@ -814,13 +791,11 @@ export default function App() {
         </div>
       </Modal>
 
-      {/* EDIT SALE MODAL */}
       <Modal isOpen={isSaleEditModalOpen} onClose={() => setIsSaleEditModalOpen(false)} title="Edit Order Details">
         <div className="space-y-4">
           <Input label="Order Number" value={currentSaleEdit.orderNumber} onChange={e => setCurrentSaleEdit({...currentSaleEdit, orderNumber: e.target.value})} />
           <Input label="Date" value={currentSaleEdit.dateStr} onChange={e => setCurrentSaleEdit({...currentSaleEdit, dateStr: e.target.value})} />
           <Input label="Customer Name" value={currentSaleEdit.customerName} onChange={e => setCurrentSaleEdit({...currentSaleEdit, customerName: e.target.value})} placeholder="e.g. John Doe" />
-          
           <div className="mt-4 pt-4 border-t border-gray-200">
             <h4 className="font-bold text-sm text-gray-700 mb-2">Order Items</h4>
             <div className="bg-gray-50 p-2 rounded-lg space-y-2">
@@ -829,63 +804,28 @@ export default function App() {
                   <span className="flex-1 text-sm font-medium">{item.name}</span>
                   <div className="flex items-center space-x-1">
                     <span className="text-xs text-gray-500">Qty:</span>
-                    <input 
-                      type="number" 
-                      min="0"
-                      value={item.qty} 
-                      onChange={(e) => updateSaleEditItemQty(index, e.target.value)}
-                      className="w-16 p-1 border border-gray-300 rounded text-sm text-center"
-                    />
+                    <input type="number" min="0" value={item.qty} onChange={(e) => updateSaleEditItemQty(index, e.target.value)} className="w-16 p-1 border border-gray-300 rounded text-sm text-center" />
                   </div>
-                  <button 
-                    onClick={() => removeSaleEditItem(index)}
-                    className="p-1 text-red-500 hover:bg-red-50 rounded"
-                    title="Remove Item"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <button onClick={() => removeSaleEditItem(index)} className="p-1 text-red-500 hover:bg-red-50 rounded" title="Remove Item"><Trash2 size={14} /></button>
                 </div>
               ))}
-              {currentSaleEdit.items.length === 0 && (
-                <p className="text-center text-gray-400 text-sm py-2">No items in this order.</p>
-              )}
             </div>
             <div className="mt-2 text-right">
               <span className="text-xs text-gray-500">New Total: </span>
-              <span className="font-bold text-gray-800">
-                ৳{currentSaleEdit.items.reduce((acc, i) => acc + (i.price * i.qty), 0).toFixed(2)}
-              </span>
+              <span className="font-bold text-gray-800">৳{currentSaleEdit.items.reduce((acc, i) => acc + (i.price * i.qty), 0).toFixed(2)}</span>
             </div>
           </div>
-
           <Button onClick={handleUpdateSale} className="w-full mt-2">Update Order</Button>
         </div>
       </Modal>
 
-      {/* SECURITY PIN MODAL */}
       <Modal isOpen={showPinModal} onClose={() => setShowPinModal(false)} title="Security Check">
         <div className="text-center space-y-4">
           <p className="text-gray-600">Enter PIN to access this section.</p>
-          <input 
-            type="password" 
-            value={pinInput} 
-            onChange={e => setPinInput(e.target.value)} 
-            className="text-center text-3xl tracking-widest w-full py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" 
-            maxLength={4}
-            autoFocus
-          />
+          <input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} className="text-center text-3xl tracking-widest w-full py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" maxLength={4} autoFocus />
           <Button onClick={verifyPin} className="w-full">Unlock</Button>
         </div>
       </Modal>
-
-      <style>{`
-        @media print {
-          @page { margin: 0.5cm; size: auto; }
-          body { background: white; }
-          aside, header, button, .no-print { display: none !important; }
-          main { overflow: visible !important; }
-        }
-      `}</style>
     </div>
   );
 }
