@@ -72,7 +72,7 @@ const appId = 'manha-pos-v1';
 let app, auth, db;
 let initError = null;
 
-// Validation Check: Ensure keys are not default placeholders
+// Validation Check
 const isConfigConfigured = firebaseConfig.apiKey !== "YOUR_API_KEY_HERE" && 
                            !firebaseConfig.authDomain.includes("your-project");
 
@@ -87,7 +87,8 @@ if (isConfigConfigured) {
   }
 }
 
-// --- Utility Components ---
+// --- Utility Components (Defined OUTSIDE App to prevent ReferenceErrors) ---
+
 const Button = ({ children, onClick, variant = 'primary', className = '', icon: Icon, disabled = false }) => {
   const baseStyle = "flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-1";
   const variants = {
@@ -133,12 +134,25 @@ const Modal = ({ isOpen, onClose, title, children }) => {
   );
 };
 
+// Fixed SidebarItem - Defined outside App and accepts props
+const SidebarItem = ({ id, icon: Icon, label, activeTab, isLocked, onClick }) => (
+  <button
+    onClick={() => onClick(id)}
+    className={`flex items-center w-full p-3 mb-2 rounded-lg transition-colors ${
+      activeTab === id 
+        ? 'bg-blue-600 text-white shadow-md' 
+        : 'text-gray-600 hover:bg-gray-100'
+    }`}
+  >
+    <Icon size={20} className="mr-3" />
+    <span className="font-medium">{label}</span>
+    {isLocked && (id === 'sales' || id === 'pos' || id === 'settings') && <Lock size={14} className="ml-auto opacity-50"/>}
+  </button>
+);
+
 // --- Main Application ---
 
 export default function App() {
-  // Safe Error Boundary State
-  const [hasRuntimeError, setHasRuntimeError] = useState(false);
-  
   const [user, setUser] = useState(null);
   const [authError, setAuthError] = useState(initError);
   const [loadingStatus, setLoadingStatus] = useState("Initializing System...");
@@ -165,7 +179,6 @@ export default function App() {
 
   // --- Auth & Data Initialization ---
   useEffect(() => {
-    // CRITICAL FIX: Do not attempt to use 'auth' if it is undefined (config missing)
     if (!isConfigConfigured || !auth) {
       setAuthError("Configuration Missing");
       return;
@@ -195,7 +208,6 @@ export default function App() {
 
   // --- Data Listeners ---
   useEffect(() => {
-    // CRITICAL FIX: Do not run listeners if user or db is missing
     if (!user || !db) return;
 
     try {
@@ -203,10 +215,7 @@ export default function App() {
       const unsubItems = onSnapshot(itemsRef, (snapshot) => {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setItems(data.sort((a, b) => a.name.localeCompare(b.name)));
-      }, (err) => {
-        console.error("Items fetch error:", err);
-        // Do not crash app on permission error, just log it
-      });
+      }, (err) => console.error("Items fetch error:", err));
 
       const salesRef = collection(db, 'artifacts', appId, 'users', user.uid, 'sales');
       const unsubSales = onSnapshot(salesRef, (snapshot) => {
@@ -228,7 +237,6 @@ export default function App() {
   }, [user]);
 
   // --- Implementation Methods ---
-  
   const handleTabChange = (tab) => {
     if (isLocked && (tab === 'sales' || tab === 'pos' || tab === 'settings')) {
       setTargetTab(tab);
@@ -474,7 +482,8 @@ export default function App() {
     );
   }, [sales, salesSearch]);
 
-  // --- 1. CONFIGURATION ERROR SCREEN ---
+  // --- RENDERS ---
+
   if (!isConfigConfigured) {
     return (
       <div className="flex items-center justify-center h-screen bg-slate-900 text-white p-8 flex-col">
@@ -501,7 +510,6 @@ export default function App() {
     );
   }
 
-  // --- 2. AUTHENTICATION ERROR SCREEN ---
   if (authError) {
     return (
       <div className="flex items-center justify-center h-screen bg-red-50 text-red-900 p-8 flex-col">
@@ -517,10 +525,7 @@ export default function App() {
               <li>API Key is invalid or restricted.</li>
             </ul>
           </div>
-          <button 
-            onClick={() => window.location.reload()}
-            className="mt-6 bg-red-600 text-white px-6 py-2 rounded-full hover:bg-red-700 transition-colors w-full"
-          >
+          <button onClick={() => window.location.reload()} className="mt-6 bg-red-600 text-white px-6 py-2 rounded-full hover:bg-red-700 transition-colors w-full">
             Retry Connection
           </button>
         </div>
@@ -528,7 +533,6 @@ export default function App() {
     );
   }
 
-  // --- 3. LOADING SCREEN ---
   if (!user) return (
     <div className="flex items-center justify-center h-screen bg-gray-50 flex-col">
       <Loader2 size={48} className="animate-spin text-blue-600 mb-4" />
@@ -537,7 +541,6 @@ export default function App() {
     </div>
   );
 
-  // --- 4. MAIN UI ---
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
       {/* Sidebar */}
@@ -547,16 +550,41 @@ export default function App() {
           <h1 className="text-xl font-bold tracking-tight text-gray-800">Manha</h1>
         </div>
         <nav className="flex-1">
-          <SidebarItem id="inventory" icon={Package} label="Inventory" />
-          <SidebarItem id="pos" icon={ShoppingCart} label="Point of Sale" />
-          <SidebarItem id="sales" icon={TrendingUp} label="Sales History" />
-          <SidebarItem id="settings" icon={Settings} label="Settings" />
+          <SidebarItem 
+            id="inventory" 
+            icon={Package} 
+            label="Inventory" 
+            activeTab={activeTab} 
+            isLocked={isLocked} 
+            onClick={handleTabChange} 
+          />
+          <SidebarItem 
+            id="pos" 
+            icon={ShoppingCart} 
+            label="Point of Sale" 
+            activeTab={activeTab} 
+            isLocked={isLocked} 
+            onClick={handleTabChange} 
+          />
+          <SidebarItem 
+            id="sales" 
+            icon={TrendingUp} 
+            label="Sales History" 
+            activeTab={activeTab} 
+            isLocked={isLocked} 
+            onClick={handleTabChange} 
+          />
+          <SidebarItem 
+            id="settings" 
+            icon={Settings} 
+            label="Settings" 
+            activeTab={activeTab} 
+            isLocked={isLocked} 
+            onClick={handleTabChange} 
+          />
         </nav>
         <div className="mt-auto pt-4 border-t border-gray-100 space-y-2">
-           <button 
-             onClick={toggleGlobalLock}
-             className={`w-full flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors ${isLocked ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}
-           >
+           <button onClick={toggleGlobalLock} className={`w-full flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors ${isLocked ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
              {isLocked ? <><Lock size={16} className="mr-2"/> App Locked</> : <><Unlock size={16} className="mr-2"/> App Unlocked</>}
            </button>
            <div className="px-3 py-2 bg-blue-50 rounded-lg text-center">
@@ -573,10 +601,7 @@ export default function App() {
             {activeTab === 'inventory' && (
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-                <input 
-                  type="text" placeholder="Search products..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 py-2 bg-gray-100 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-64"
-                />
+                <input type="text" placeholder="Search products..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 bg-gray-100 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-64" />
               </div>
             )}
           </div>
@@ -597,11 +622,7 @@ export default function App() {
               {filteredItems.map(item => (
                 <Card key={item.id} className="overflow-hidden hover:shadow-md transition-shadow group relative">
                   <div className="h-40 bg-gray-100 relative">
-                    {item.imageUrl ? (
-                      <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-gray-300"><ImageIcon size={48} /></div>
-                    )}
+                    {item.imageUrl ? <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-300"><ImageIcon size={48} /></div>}
                     <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-2">
                       <button onClick={() => openEditItem(item)} className="bg-white p-2 rounded-full shadow-md text-blue-500 hover:bg-blue-50"><Edit size={16} /></button>
                       <button onClick={() => handleDeleteItem(item.id)} className="bg-white p-2 rounded-full shadow-md text-red-500 hover:bg-red-50"><Trash2 size={16} /></button>
@@ -629,10 +650,7 @@ export default function App() {
               <Input placeholder="Search item..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full mb-4" />
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredItems.map(item => (
-                  <button 
-                    key={item.id} onClick={() => addToCart(item)} disabled={item.stock <= 0}
-                    className={`text-left p-4 rounded-xl border transition-all ${item.stock > 0 ? 'bg-white border-gray-200 hover:border-blue-500 hover:shadow-md' : 'bg-gray-50 border-gray-100 opacity-60 cursor-not-allowed'}`}
-                  >
+                  <button key={item.id} onClick={() => addToCart(item)} disabled={item.stock <= 0} className={`text-left p-4 rounded-xl border transition-all ${item.stock > 0 ? 'bg-white border-gray-200 hover:border-blue-500 hover:shadow-md' : 'bg-gray-50 border-gray-100 opacity-60 cursor-not-allowed'}`}>
                     <div className="flex justify-between items-start mb-1">
                       <span className="font-bold text-gray-800">{item.name}</span>
                       <span className="font-bold text-blue-600">৳{item.price}</span>
@@ -689,7 +707,6 @@ export default function App() {
                       <p className="text-gray-500">
                         {viewOrder.dateStr} 
                         {viewOrder.timeStr && <span className="block text-sm text-gray-400 mt-1">{viewOrder.timeStr}</span>}
-                        {!viewOrder.timeStr && viewOrder.createdAt && <span className="block text-sm text-gray-400 mt-1">{new Date(viewOrder.createdAt.seconds * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>}
                       </p>
                     </div>
                   </div>
@@ -755,7 +772,6 @@ export default function App() {
             <div className="space-y-6">
               <Card className="p-6">
                 <h3 className="font-bold text-lg mb-2 flex items-center"><Lock className="mr-2" size={20}/> Security</h3>
-                <p className="text-sm text-gray-500 mb-4">Set the PIN required to access Sales and POS when the app is locked.</p>
                 <div className="flex items-end space-x-4">
                   <Input label="App PIN Code" value={securityPin} onChange={(e) => setSecurityPin(e.target.value)} type="password" className="flex-1" />
                   <Button variant="success" onClick={() => alert("PIN Updated!")}>Update PIN</Button>
@@ -763,7 +779,6 @@ export default function App() {
               </Card>
               <Card className="p-6">
                 <h3 className="font-bold text-lg mb-2 flex items-center"><Save className="mr-2" size={20}/> Data Backup</h3>
-                <p className="text-sm text-gray-500 mb-4">Download your entire database as a file.</p>
                 <Button variant="secondary" onClick={handleBackupData} icon={Download} className="w-full">Download Database Backup</Button>
               </Card>
             </div>
@@ -780,10 +795,6 @@ export default function App() {
           </div>
           <Input label="Category" value={currentItem.category} onChange={e => setCurrentItem({...currentItem, category: e.target.value})} />
           <Input label="Image URL" value={currentItem.imageUrl} onChange={e => setCurrentItem({...currentItem, imageUrl: e.target.value})} />
-          <div className="flex flex-col">
-            <label className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Description</label>
-            <textarea value={currentItem.description} onChange={e => setCurrentItem({...currentItem, description: e.target.value})} className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 min-h-[100px]" />
-          </div>
           <Button onClick={handleSaveItem} className="w-full mt-2">Save Changes</Button>
         </div>
       </Modal>
@@ -792,25 +803,16 @@ export default function App() {
         <div className="space-y-4">
           <Input label="Order Number" value={currentSaleEdit.orderNumber} onChange={e => setCurrentSaleEdit({...currentSaleEdit, orderNumber: e.target.value})} />
           <Input label="Date" value={currentSaleEdit.dateStr} onChange={e => setCurrentSaleEdit({...currentSaleEdit, dateStr: e.target.value})} />
-          <Input label="Customer Name" value={currentSaleEdit.customerName} onChange={e => setCurrentSaleEdit({...currentSaleEdit, customerName: e.target.value})} placeholder="e.g. John Doe" />
+          <Input label="Customer Name" value={currentSaleEdit.customerName} onChange={e => setCurrentSaleEdit({...currentSaleEdit, customerName: e.target.value})} />
           <div className="mt-4 pt-4 border-t border-gray-200">
             <h4 className="font-bold text-sm text-gray-700 mb-2">Order Items</h4>
-            <div className="bg-gray-50 p-2 rounded-lg space-y-2">
-              {currentSaleEdit.items.map((item, index) => (
-                <div key={index} className="flex items-center space-x-2 bg-white p-2 rounded border border-gray-200">
-                  <span className="flex-1 text-sm font-medium">{item.name}</span>
-                  <div className="flex items-center space-x-1">
-                    <span className="text-xs text-gray-500">Qty:</span>
-                    <input type="number" min="0" value={item.qty} onChange={(e) => updateSaleEditItemQty(index, e.target.value)} className="w-16 p-1 border border-gray-300 rounded text-sm text-center" />
-                  </div>
-                  <button onClick={() => removeSaleEditItem(index)} className="p-1 text-red-500 hover:bg-red-50 rounded" title="Remove Item"><Trash2 size={14} /></button>
-                </div>
-              ))}
-            </div>
-            <div className="mt-2 text-right">
-              <span className="text-xs text-gray-500">New Total: </span>
-              <span className="font-bold text-gray-800">৳{currentSaleEdit.items.reduce((acc, i) => acc + (i.price * i.qty), 0).toFixed(2)}</span>
-            </div>
+            {currentSaleEdit.items.map((item, index) => (
+              <div key={index} className="flex items-center space-x-2 bg-white p-2 rounded border border-gray-200 mb-2">
+                <span className="flex-1 text-sm font-medium">{item.name}</span>
+                <input type="number" min="0" value={item.qty} onChange={(e) => updateSaleEditItemQty(index, e.target.value)} className="w-16 p-1 border border-gray-300 rounded text-sm text-center" />
+                <button onClick={() => removeSaleEditItem(index)} className="p-1 text-red-500 hover:bg-red-50 rounded"><Trash2 size={14} /></button>
+              </div>
+            ))}
           </div>
           <Button onClick={handleUpdateSale} className="w-full mt-2">Update Order</Button>
         </div>
@@ -818,8 +820,7 @@ export default function App() {
 
       <Modal isOpen={showPinModal} onClose={() => setShowPinModal(false)} title="Security Check">
         <div className="text-center space-y-4">
-          <p className="text-gray-600">Enter PIN to access this section.</p>
-          <input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} className="text-center text-3xl tracking-widest w-full py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" maxLength={4} autoFocus />
+          <input type="password" value={pinInput} onChange={e => setPinInput(e.target.value)} className="text-center text-3xl tracking-widest w-full py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" maxLength={4} autoFocus />
           <Button onClick={verifyPin} className="w-full">Unlock</Button>
         </div>
       </Modal>
